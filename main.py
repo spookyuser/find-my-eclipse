@@ -104,6 +104,10 @@ class EclipseRecord(BaseModel):
     cat_no: int
     bessel: BesselianCoefficients
 
+    # Peak coordinates from NASA (only defined for central eclipses)
+    lat_ge: Optional[float] = None  # latitude of greatest eclipse (degrees, north positive)
+    lon_ge: Optional[float] = None  # longitude of greatest eclipse (degrees, east positive)
+
     @staticmethod
     def parse_main_type(raw: str) -> EclipseTypeMain:
         if not raw:
@@ -301,7 +305,14 @@ def classify_at_max(fa: FundamentalArgs) -> EclipseKind:
 
 def jd_tdt_from_t(e: EclipseRecord, t: float) -> float:
     td_ge_hours = parse_hms_to_hours(e.td_ge)
-    jd_t0 = e.julian_date_ge_tdt + (e.bessel.t0_tdt_hours - td_ge_hours) / 24.0
+    # Handle day wrap: t0 is the nearest integer hour to td_ge, so when td_ge
+    # is close to midnight (e.g. 23:45), t0=0 refers to the NEXT day.
+    delta_hours = e.bessel.t0_tdt_hours - td_ge_hours
+    if delta_hours < -12:
+        delta_hours += 24
+    elif delta_hours > 12:
+        delta_hours -= 24
+    jd_t0 = e.julian_date_ge_tdt + delta_hours / 24.0
     return jd_t0 + t / 24.0
 
 
@@ -467,6 +478,16 @@ def load_catalog(csv_path: str) -> list[EclipseRecord]:
                 tmax=f["tmax"],
             )
 
+            # Parse peak coordinates (only defined for central eclipses)
+            lat_ge = None
+            lon_ge = None
+            if row.get("lat_dd_ge") and row.get("lng_dd_ge"):
+                try:
+                    lat_ge = float(row["lat_dd_ge"])
+                    lon_ge = float(row["lng_dd_ge"])
+                except (ValueError, TypeError):
+                    pass
+
             records.append(
                 EclipseRecord(
                     year=int(f["year"]),
@@ -479,6 +500,8 @@ def load_catalog(csv_path: str) -> list[EclipseRecord]:
                     td_ge=row["td_ge"],
                     cat_no=int(f["cat_no"]),
                     bessel=b,
+                    lat_ge=lat_ge,
+                    lon_ge=lon_ge,
                 )
             )
 

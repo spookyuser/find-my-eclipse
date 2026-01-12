@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(ECLIPSE_CSV=/Users/caleb/Developer/eclipse/eclipse_besselian.csv uv run pytest:*)",
+      "Bash(ECLIPSE_CSV=eclipse_besselian.csv uv run python3:*)",
+      "Bash(uv run python:*)"
     ]
   }
 }
