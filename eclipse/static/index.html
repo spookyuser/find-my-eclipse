@@ -81,6 +81,40 @@
         .nasa-link:hover {
             text-decoration: underline;
         }
+        #legend {
+            position: fixed;
+            bottom: 60px;
+            left: 20px;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px 16px;
+            backdrop-filter: blur(10px);
+            font-size: 13px;
+        }
+        #legend h4 {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+        .legend-line {
+            width: 24px;
+            height: 3px;
+            border-radius: 2px;
+        }
+        .legend-line.previous { background: #7eb8da; }
+        .legend-line.next { background: #f5a623; }
         #instructions {
             position: fixed;
             bottom: 20px;
@@ -105,6 +139,18 @@
 <body>
     <div id="globe"></div>
     
+    <div id="legend" style="display: none;">
+        <h4>Eclipse Paths</h4>
+        <div class="legend-item">
+            <div class="legend-line previous"></div>
+            <span id="legend-previous">Previous Eclipse</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-line next"></div>
+            <span id="legend-next">Next Eclipse</span>
+        </div>
+    </div>
+
     <div id="info-panel">
         <h2>🌑 Eclipse Finder</h2>
         <div id="content">
@@ -134,6 +180,15 @@
             .pathDashLength(0.01)
             .pathDashGap(0.004)
             .pathDashAnimateTime(100000)
+            .labelsData([])
+            .labelLat(d => d.lat)
+            .labelLng(d => d.lng)
+            .labelText(d => d.text)
+            .labelSize(1.5)
+            .labelDotRadius(0.4)
+            .labelColor(d => d.color)
+            .labelResolution(2)
+            .labelAltitude(0.01)
             (document.getElementById('globe'));
 
         globe.controls().autoRotate = true;
@@ -174,14 +229,25 @@
             return `https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=${ecl}`;
         }
 
-        async function fetchEclipsePath(catNo, color) {
+        async function fetchEclipsePath(catNo, color, label) {
             try {
                 const resp = await fetch(`/api/eclipse-path/${catNo}`);
                 if (!resp.ok) return null;
                 const data = await resp.json();
+                const coords = data.path.map(p => [p.lat, p.lon]);
+                const midIdx = Math.floor(coords.length / 2);
+                const midPoint = coords[midIdx];
                 return {
-                    coords: data.path.map(p => [p.lat, p.lon]),
-                    color: color
+                    path: {
+                        coords: coords,
+                        color: color
+                    },
+                    label: {
+                        lat: midPoint[0],
+                        lng: midPoint[1],
+                        text: label,
+                        color: color
+                    }
                 };
             } catch (e) {
                 return null;
@@ -222,15 +288,32 @@
             document.getElementById('content').innerHTML = html;
 
             const paths = [];
+            const labels = [];
+            const legend = document.getElementById('legend');
+            
             if (data.previous) {
-                const path = await fetchEclipsePath(data.previous.cat_no, '#7eb8da');
-                if (path) paths.push(path);
+                const result = await fetchEclipsePath(data.previous.cat_no, '#7eb8da', data.previous.date);
+                if (result) {
+                    paths.push(result.path);
+                    labels.push(result.label);
+                }
+                document.getElementById('legend-previous').textContent = data.previous.date;
             }
             if (data.next) {
-                const path = await fetchEclipsePath(data.next.cat_no, '#f5a623');
-                if (path) paths.push(path);
+                const result = await fetchEclipsePath(data.next.cat_no, '#f5a623', data.next.date);
+                if (result) {
+                    paths.push(result.path);
+                    labels.push(result.label);
+                }
+                document.getElementById('legend-next').textContent = data.next.date;
             }
+            
+            if (paths.length > 0) {
+                legend.style.display = 'block';
+            }
+            
             globe.pathsData(paths);
+            globe.labelsData(labels);
         }
     </script>
 </body>
