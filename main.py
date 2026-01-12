@@ -438,7 +438,7 @@ def load_catalog(csv_path: str) -> list[EclipseRecord]:
 
         for row in reader:
             raw_type = row["eclipse_type"]
-            f = {k: float(row[k]) for k in row if k not in ("eclipse_type", "td_ge")}
+            f = {k: float(row[k]) for k in row if k not in ("eclipse_type", "td_ge", "lat_ge", "lng_ge", "central_duration")}
             b = BesselianCoefficients(
                 t0_tdt_hours=f["t0"],
                 x0=f["x0"],
