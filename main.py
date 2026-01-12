@@ -1,22 +1,9 @@
 """
-Prototype: last/next TOTAL solar eclipse at a given point using NASA polynomial Besselian elements.
-
 Data source (CSV):
     https://eclipse.gsfc.nasa.gov/eclipse_besselian_from_mysqldump2.csv
 
 Attribution requested by NASA:
     "Eclipse Predictions by Fred Espenak, NASA's GSFC"
-
-Notes / limitations:
-- Uses the polynomial Besselian elements method (fundamental plane).
-- Does NOT apply lunar limb profile corrections (Watts/Kaguya/LRO), so results near the path edges
-  can be off by ~1–2 km and contact times by a few seconds.
-- Uses the ΔT values embedded in the CSV. Those dominate uncertainty for eclipses far from the present.
-
-Important correctness note:
-- The fundamental-plane projection admits a "night-side" solution (Sun below horizon) that can
-  otherwise look like a valid local eclipse. This script explicitly rejects total eclipses where
-  totality (C2..C3) is entirely below the horizon.
 """
 
 from __future__ import annotations
