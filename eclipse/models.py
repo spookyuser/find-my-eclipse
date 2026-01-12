@@ -7,7 +7,6 @@ Data source: https://eclipse.gsfc.nasa.gov/eclipse_besselian_from_mysqldump2.csv
 
 from __future__ import annotations
 
-import math
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
