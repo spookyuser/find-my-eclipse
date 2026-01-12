@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Eclipse Finder</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-fork-ribbon-css/0.2.3/gh-fork-ribbon.min.css" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Find My Eclipse</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌑</text></svg>">
+
     <script src="https://unpkg.com/globe.gl"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -155,7 +158,10 @@
     </style>
 </head>
 <body>
+    <a class="github-fork-ribbon left-top fixed" href="https://github.com/spookyuser/eclipse" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
+
     <div id="globe"></div>
+
     
     <div id="legend" style="display: none;">
         <h4>Eclipse Paths</h4>
@@ -170,11 +176,13 @@
     </div>
 
     <div id="info-panel">
+    <h1>Find My Eclipse</h1>    
+
         <div id="content">
         </div>
     </div>
     
-    <div id="instructions">Click anywhere to see the next and previous total solar eclipses at that location*</div>   
+    <div id="instructions">Click anywhere to see the <strong>next</strong> and <strong>previous</strong> total solar eclipses at that location*</div>   
     
     <div id="attribution">
         Eclipse Predictions by <a href="https://eclipse.gsfc.nasa.gov/" target="_blank">Fred Espenak, NASA's GSFC</a>
