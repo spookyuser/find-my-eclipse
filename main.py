@@ -105,8 +105,12 @@ class EclipseRecord(BaseModel):
     bessel: BesselianCoefficients
 
     # Peak coordinates from NASA (only defined for central eclipses)
-    lat_ge: Optional[float] = None  # latitude of greatest eclipse (degrees, north positive)
-    lon_ge: Optional[float] = None  # longitude of greatest eclipse (degrees, east positive)
+    lat_ge: Optional[float] = (
+        None  # latitude of greatest eclipse (degrees, north positive)
+    )
+    lon_ge: Optional[float] = (
+        None  # longitude of greatest eclipse (degrees, east positive)
+    )
 
     @staticmethod
     def parse_main_type(raw: str) -> EclipseTypeMain:
@@ -449,7 +453,12 @@ def load_catalog(csv_path: str) -> list[EclipseRecord]:
 
         for row in reader:
             raw_type = row["eclipse_type"]
-            f = {k: float(row[k]) for k in row if k not in ("eclipse_type", "td_ge", "lat_ge", "lng_ge", "central_duration")}
+            f = {
+                k: float(row[k])
+                for k in row
+                if k
+                not in ("eclipse_type", "td_ge", "lat_ge", "lng_ge", "central_duration")
+            }
             b = BesselianCoefficients(
                 t0_tdt_hours=f["t0"],
                 x0=f["x0"],
