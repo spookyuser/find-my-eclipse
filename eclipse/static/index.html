@@ -162,7 +162,7 @@
     
     <script>
         const globe = Globe()
-            .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+            .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
             .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
             .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
             .pointsData([])
@@ -193,6 +193,8 @@
 
         globe.controls().autoRotate = true;
         globe.controls().autoRotateSpeed = 0.5;
+        globe.controls().minDistance = 101;
+        globe.controls().maxDistance = 500;
 
         let selectedPoint = null;
 
