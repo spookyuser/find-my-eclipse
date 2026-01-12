@@ -71,6 +71,16 @@
             color: #666;
             font-style: italic;
         }
+        .nasa-link {
+            display: inline-block;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #7eb8da;
+            text-decoration: none;
+        }
+        .nasa-link:hover {
+            text-decoration: underline;
+        }
         #instructions {
             position: fixed;
             bottom: 20px;
@@ -150,6 +160,11 @@
             return `${secs}s of totality`;
         }
 
+        function getNasaUrl(dateIso) {
+            const ecl = dateIso.replace(/-/g, '');
+            return `https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=${ecl}`;
+        }
+
         function displayResults(data) {
             let html = `<div class="coords">📍 ${data.lat.toFixed(4)}°, ${data.lon.toFixed(4)}°</div>`;
             
@@ -161,6 +176,7 @@
                 if (data.previous.duration_seconds) {
                     html += `<div class="duration">${formatDuration(data.previous.duration_seconds)}</div>`;
                 }
+                html += `<a class="nasa-link" href="${getNasaUrl(data.previous.date)}" target="_blank">View on NASA</a>`;
             } else {
                 html += '<p class="no-eclipse">None found in catalog</p>';
             }
@@ -174,6 +190,7 @@
                 if (data.next.duration_seconds) {
                     html += `<div class="duration">${formatDuration(data.next.duration_seconds)}</div>`;
                 }
+                html += `<a class="nasa-link" href="${getNasaUrl(data.next.date)}" target="_blank">View on NASA</a>`;
             } else {
                 html += '<p class="no-eclipse">None found in catalog</p>';
             }
