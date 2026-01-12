@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import datetime as _dt
 import math
 from pathlib import Path
 from typing import Literal, Optional, Tuple
 
+from astropy.time import Time
 from pydantic import BaseModel, ConfigDict, Field
 
 EclipseTypeMain = Literal["P", "A", "T", "H"]
@@ -239,7 +239,7 @@ def fundamental_args(e: EclipseRecord, loc: Location, t: float) -> FundamentalAr
     v = Y - eta
     a = Xp - xi_p
     bb = Yp - eta_p
-    n = math.sqrt(a * a + bb * bb)
+    n = math.hypot(a, bb)
 
     return FundamentalArgs(
         t=t,
@@ -289,11 +289,13 @@ def classify_at_max(fa: FundamentalArgs) -> EclipseKind:
     # NOTE: do NOT reject on zeta here.
     # A sunrise/sunset total eclipse can have zeta cross 0 between C2 and C3.
     # We instead apply a dedicated horizon check after computing C2/C3 for total eclipses.
-    m = math.sqrt(fa.u * fa.u + fa.v * fa.v)
+    m = math.hypot(fa.u, fa.v)
     if m > fa.L1p:
         return "none"
     if m < abs(fa.L2p):
-        return "total" if fa.L2p < 0 else "annular"
+        if fa.L2p < 0:
+            return "total"
+        return "annular"
     return "partial"
 
 
@@ -343,60 +345,46 @@ def totality_visible(e: EclipseRecord, loc: Location, t_c2: float, t_c3: float) 
 
 def compute_local_eclipse(e: EclipseRecord, loc: Location) -> LocalEclipseResult:
     t_max, fa = solve_t_max(e, loc)
+    jd_ut_max = jd_ut_from_t(e, t_max)
+    m = math.hypot(fa.u, fa.v)
 
-    # If we drift outside the validity interval of the polynomial fit, treat as not-visible.
-    if not (e.bessel.tmin <= t_max <= e.bessel.tmax):
-        jd_ut_max = jd_ut_from_t(e, t_max)
-        m = math.sqrt(fa.u * fa.u + fa.v * fa.v)
+    def make_result(
+        kind: EclipseKind,
+        jd_ut_c2: Optional[float] = None,
+        jd_ut_c3: Optional[float] = None,
+    ) -> LocalEclipseResult:
         return LocalEclipseResult(
             eclipse=e,
-            kind="none",
+            kind=kind,
             t_max=t_max,
             jd_ut_max=jd_ut_max,
             m_er=m,
             L1p=fa.L1p,
             L2p=fa.L2p,
+            jd_ut_c2=jd_ut_c2,
+            jd_ut_c3=jd_ut_c3,
         )
 
+    # If we drift outside the validity interval of the polynomial fit, treat as not-visible.
+    if not (e.bessel.tmin <= t_max <= e.bessel.tmax):
+        return make_result("none")
+
     kind = classify_at_max(fa)
-    jd_ut_max = jd_ut_from_t(e, t_max)
-    m = math.sqrt(fa.u * fa.u + fa.v * fa.v)
 
-    jd_ut_c2: Optional[float] = None
-    jd_ut_c3: Optional[float] = None
-    if kind == "total":
-        L = abs(fa.L2p)
-        S = (fa.a * fa.v - fa.u * fa.b) / (fa.n * L)
-        tau = (L / fa.n) * math.sqrt(1.0 - S * S)
+    if kind != "total":
+        return make_result(kind)
 
-        t_c2 = refine_contact(e, loc, t_max - tau, radius="L2p", which="minus")
-        t_c3 = refine_contact(e, loc, t_max + tau, radius="L2p", which="plus")
+    L = abs(fa.L2p)
+    S = (fa.a * fa.v - fa.u * fa.b) / (fa.n * L)
+    tau = (L / fa.n) * math.sqrt(1.0 - S * S)
 
-        if not totality_visible(e, loc, t_c2, t_c3):
-            return LocalEclipseResult(
-                eclipse=e,
-                kind="none",
-                t_max=t_max,
-                jd_ut_max=jd_ut_max,
-                m_er=m,
-                L1p=fa.L1p,
-                L2p=fa.L2p,
-            )
+    t_c2 = refine_contact(e, loc, t_max - tau, radius="L2p", which="minus")
+    t_c3 = refine_contact(e, loc, t_max + tau, radius="L2p", which="plus")
 
-        jd_ut_c2 = jd_ut_from_t(e, t_c2)
-        jd_ut_c3 = jd_ut_from_t(e, t_c3)
+    if not totality_visible(e, loc, t_c2, t_c3):
+        return make_result("none")
 
-    return LocalEclipseResult(
-        eclipse=e,
-        kind=kind,
-        t_max=t_max,
-        jd_ut_max=jd_ut_max,
-        m_er=m,
-        L1p=fa.L1p,
-        L2p=fa.L2p,
-        jd_ut_c2=jd_ut_c2,
-        jd_ut_c3=jd_ut_c3,
-    )
+    return make_result("total", jd_ut_from_t(e, t_c2), jd_ut_from_t(e, t_c3))
 
 
 def load_catalog(csv_path: str) -> list[EclipseRecord]:
@@ -450,113 +438,51 @@ def load_catalog(csv_path: str) -> list[EclipseRecord]:
 
         for row in reader:
             raw_type = row["eclipse_type"]
+            f = {k: float(row[k]) for k in row if k not in ("eclipse_type", "td_ge")}
             b = BesselianCoefficients(
-                t0_tdt_hours=float(row["t0"]),
-                x0=float(row["x0"]),
-                x1=float(row["x1"]),
-                x2=float(row["x2"]),
-                x3=float(row["x3"]),
-                y0=float(row["y0"]),
-                y1=float(row["y1"]),
-                y2=float(row["y2"]),
-                y3=float(row["y3"]),
-                d0=float(row["d0"]),
-                d1=float(row["d1"]),
-                d2=float(row["d2"]),
-                mu0=float(row["mu0"]),
-                mu1=float(row["mu1"]),
-                mu2=float(row["mu2"]),
-                l10=float(row["l10"]),
-                l11=float(row["l11"]),
-                l12=float(row["l12"]),
-                l20=float(row["l20"]),
-                l21=float(row["l21"]),
-                l22=float(row["l22"]),
-                tan_f1=float(row["tan_f1"]),
-                tan_f2=float(row["tan_f2"]),
-                tmin=float(row["tmin"]),
-                tmax=float(row["tmax"]),
+                t0_tdt_hours=f["t0"],
+                x0=f["x0"],
+                x1=f["x1"],
+                x2=f["x2"],
+                x3=f["x3"],
+                y0=f["y0"],
+                y1=f["y1"],
+                y2=f["y2"],
+                y3=f["y3"],
+                d0=f["d0"],
+                d1=f["d1"],
+                d2=f["d2"],
+                mu0=f["mu0"],
+                mu1=f["mu1"],
+                mu2=f["mu2"],
+                l10=f["l10"],
+                l11=f["l11"],
+                l12=f["l12"],
+                l20=f["l20"],
+                l21=f["l21"],
+                l22=f["l22"],
+                tan_f1=f["tan_f1"],
+                tan_f2=f["tan_f2"],
+                tmin=f["tmin"],
+                tmax=f["tmax"],
             )
 
-            rec = EclipseRecord(
-                year=int(row["year"]),
-                month=int(row["month"]),
-                day=int(row["day"]),
-                eclipse_type=raw_type,
-                main_type=EclipseRecord.parse_main_type(raw_type),
-                dt=float(row["dt"]),
-                julian_date=float(row["julian_date"]),
-                td_ge=row["td_ge"],
-                cat_no=int(float(row["cat_no"])),
-                bessel=b,
+            records.append(
+                EclipseRecord(
+                    year=int(f["year"]),
+                    month=int(f["month"]),
+                    day=int(f["day"]),
+                    eclipse_type=raw_type,
+                    main_type=EclipseRecord.parse_main_type(raw_type),
+                    dt=f["dt"],
+                    julian_date=f["julian_date"],
+                    td_ge=row["td_ge"],
+                    cat_no=int(f["cat_no"]),
+                    bessel=b,
+                )
             )
-            records.append(rec)
 
     return records
-
-
-def jd_to_calendar(jd: float) -> Tuple[int, int, int, int, int, float]:
-    # Meeus: Astronomical Algorithms, Ch. 7 (Gregorian reform at 1582-10-15 / JD 2299161)
-    jd = jd + 0.5
-    Z = int(math.floor(jd))
-    F = jd - Z
-
-    if Z < 2299161:
-        A = Z
-    else:
-        alpha = int((Z - 1867216.25) / 36524.25)
-        A = Z + 1 + alpha - int(alpha / 4)
-
-    B = A + 1524
-    C = int((B - 122.1) / 365.25)
-    D = int(365.25 * C)
-    E = int((B - D) / 30.6001)
-
-    day = B - D - int(30.6001 * E) + F
-
-    month = E - 1 if E < 14 else E - 13
-    year = C - 4716 if month > 2 else C - 4715
-
-    day_int = int(math.floor(day))
-    frac_day = day - day_int
-
-    hour = int(math.floor(frac_day * 24.0))
-    frac_day = frac_day * 24.0 - hour
-
-    minute = int(math.floor(frac_day * 60.0))
-    frac_day = frac_day * 60.0 - minute
-
-    second = frac_day * 60.0
-    return year, month, day_int, hour, minute, second
-
-
-def format_jd_utc(jd: float) -> str:
-    y, m, d, hh, mm, ss = jd_to_calendar(jd)
-    ss_i = int(ss)
-    ms = int(round((ss - ss_i) * 1000.0))
-    if ms == 1000:
-        ss_i += 1
-        ms = 0
-    sign = "-" if y < 0 else ""
-    y_abs = abs(y)
-    y_str = f"{sign}{y_abs:04d}" if y_abs < 10000 else f"{sign}{y_abs}"
-    return f"{y_str}-{m:02d}-{d:02d} {hh:02d}:{mm:02d}:{ss_i:02d}.{ms:03d} UTC"
-
-
-def datetime_utc_to_jd(dt: _dt.datetime) -> float:
-    if dt.tzinfo is None:
-        raise ValueError("ref datetime must be timezone-aware")
-    dt_utc = dt.astimezone(_dt.timezone.utc)
-    return 2440587.5 + dt_utc.timestamp() / 86400.0
-
-
-def parse_ref_utc(s: str) -> _dt.datetime:
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    dt = _dt.datetime.fromisoformat(s)
-    if dt.tzinfo is None:
-        raise ValueError("ref time must include a timezone offset (e.g. Z or +00:00)")
-    return dt.astimezone(_dt.timezone.utc)
 
 
 def find_last_next_total(
@@ -595,12 +521,14 @@ def print_result(label: str, r: Optional[LocalEclipseResult]) -> None:
     print(
         f"{label}: cat_no={e.cat_no}  date={e.year:04d}-{e.month:02d}-{e.day:02d}  type={e.eclipse_type_raw}"
     )
-    print(f"  max: {format_jd_utc(r.jd_ut_max)}  (kind={r.kind})")
+    print(
+        f"  max: {Time(r.jd_ut_max, format='jd', scale='utc').iso} UTC  (kind={r.kind})"
+    )
 
     if r.jd_ut_c2 is not None and r.jd_ut_c3 is not None:
         dur_s = (r.jd_ut_c3 - r.jd_ut_c2) * 86400.0
-        print(f"  C2 : {format_jd_utc(r.jd_ut_c2)}")
-        print(f"  C3 : {format_jd_utc(r.jd_ut_c3)}")
+        print(f"  C2 : {Time(r.jd_ut_c2, format='jd', scale='utc').iso} UTC")
+        print(f"  C3 : {Time(r.jd_ut_c3, format='jd', scale='utc').iso} UTC")
         print(f"  duration: {dur_s:.1f} s")
 
 
@@ -619,7 +547,7 @@ def main() -> None:
         help="Longitude in degrees east (east positive; west is negative)",
     )
     ap.add_argument(
-        "--alt", type=float, default=None, help="Altitude in meters (default: 0)"
+        "--alt", type=float, default=0.0, help="Altitude in meters (default: 0)"
     )
     ap.add_argument(
         "--ref-utc",
@@ -628,29 +556,24 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    if args.alt is None:
-        print("alt not provided; using 0 m")
-        alt = 0.0
-    else:
-        alt = float(args.alt)
-
     if args.ref_utc is None:
-        now = _dt.datetime.now(tz=_dt.timezone.utc)
-        print(f"ref-utc not provided; using now: {now.isoformat()}")
-        ref_dt = now
+        ref_time = Time.now()
+        print(f"ref-utc not provided; using now: {ref_time.iso}")
     else:
-        ref_dt = parse_ref_utc(args.ref_utc)
+        ref_time = Time(args.ref_utc, scale="utc")
 
-    loc = Location(latitude_deg=args.lat, longitude_deg_east=args.lon, altitude_m=alt)
+    loc = Location(
+        latitude_deg=args.lat, longitude_deg_east=args.lon, altitude_m=args.alt
+    )
     catalog = load_catalog(args.csv)
-    ref_jd = datetime_utc_to_jd(ref_dt)
+    ref_jd = ref_time.jd
 
     prev_r, next_r = find_last_next_total(catalog, loc, ref_jd)
 
     print(
         f"Location: lat={loc.latitude_deg:.6f}, lon_east={loc.longitude_deg_east:.6f}, alt_m={loc.altitude_m:.1f}"
     )
-    print(f"Reference: {format_jd_utc(ref_jd)} (JD_UT={ref_jd:.6f})")
+    print(f"Reference: {ref_time.iso} UTC (JD_UT={ref_jd:.6f})")
     print_result("Previous total eclipse", prev_r)
     print_result("Next total eclipse", next_r)
 
