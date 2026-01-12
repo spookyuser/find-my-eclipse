@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import bisect
 import math
-import os
 from dataclasses import dataclass
 from typing import Final
 
 import astronomy
-import pytest
 from hypothesis import assume, given, settings, strategies as st
 
-import main
+from eclipse import Location, load_catalog
+from eclipse.compute import compute_local_eclipse, solve_t_max
+from eclipse.models import EclipseRecord
 
 J2000_JD_UT: Final[float] = 2451545.0
 
@@ -57,14 +57,13 @@ def offset_lat_lon_km(
     return (math.degrees(lat2), wrap_lon_deg(math.degrees(lon2)))
 
 
-def nasa_jd_ut_ge(e: main.EclipseRecord) -> float:
+def nasa_jd_ut_ge(e: EclipseRecord) -> float:
     # NASA record gives JD at greatest eclipse in TT/TDT; UT = TT - ΔT.
     return e.julian_date_ge_tdt - (e.delta_t_seconds / 86400.0)
 
 
-def load_nasa_index() -> tuple[list[float], list[main.EclipseRecord]]:
-    csv_path = os.environ["ECLIPSE_CSV"]
-    catalog = main.load_catalog(csv_path)
+def load_nasa_index() -> tuple[list[float], list[EclipseRecord]]:
+    catalog = load_catalog()
 
     pairs = sorted((nasa_jd_ut_ge(e), e) for e in catalog)
     jd_list = [p[0] for p in pairs]
@@ -75,7 +74,7 @@ def load_nasa_index() -> tuple[list[float], list[main.EclipseRecord]]:
 NASA_JD_UT, NASA_REC = load_nasa_index()
 
 
-def nearest_nasa_record(jd_ut: float) -> main.EclipseRecord:
+def nearest_nasa_record(jd_ut: float) -> EclipseRecord:
     i = bisect.bisect_left(NASA_JD_UT, jd_ut)
     if i == 0:
         return NASA_REC[0]
@@ -161,10 +160,8 @@ def test_global_peak_points_match_kind_and_peak_time() -> None:
         lat = nasa.lat_ge if nasa.lat_ge is not None else c.lat
         lon = nasa.lon_ge if nasa.lon_ge is not None else c.lon
 
-        loc = main.Location(
-            latitude_deg=lat, longitude_deg_east=lon, altitude_m=0.0
-        )
-        res = main.compute_local_eclipse(nasa, loc)
+        loc = Location(latitude_deg=lat, longitude_deg_east=lon, altitude_m=0.0)
+        res = compute_local_eclipse(nasa, loc)
 
         assert res.kind == map_ae_kind(c.kind)
 
@@ -226,14 +223,14 @@ def test_local_kind_matches_astronomy_engine_near_center(
     )
     assume(nasa_kind == map_ae_kind(info.kind))
 
-    loc = main.Location(latitude_deg=lat, longitude_deg_east=lon, altitude_m=0.0)
-    res = main.compute_local_eclipse(nasa, loc)
+    loc = Location(latitude_deg=lat, longitude_deg_east=lon, altitude_m=0.0)
+    res = compute_local_eclipse(nasa, loc)
 
     # Skip boundary cases where observer is near the umbral/antumbral edge.
     # Small ephemeris differences can flip the classification in these cases.
     if info.kind in (astronomy.EclipseKind.Total, astronomy.EclipseKind.Annular):
         # Check if m is within 5% of |L2p| (near the shadow edge)
-        t_max, fa = main.solve_t_max(nasa, loc)
+        t_max, fa = solve_t_max(nasa, loc)
         m = math.hypot(fa.u, fa.v)
         assume(abs(m - abs(fa.L2p)) / max(abs(fa.L2p), 1e-9) > 0.05)
 

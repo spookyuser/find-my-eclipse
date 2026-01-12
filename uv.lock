@@ -66,21 +66,26 @@ name = "eclipse"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "astronomy-engine" },
     { name = "astropy" },
-    { name = "hypothesis" },
     { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "astronomy-engine" },
+    { name = "hypothesis" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "astronomy-engine", specifier = ">=2.1.19" },
+    { name = "astronomy-engine", marker = "extra == 'dev'", specifier = ">=2.1.19" },
     { name = "astropy", specifier = ">=7.2.0" },
-    { name = "hypothesis", specifier = ">=6.150.1" },
+    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.150.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "hypothesis"
