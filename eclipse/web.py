@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .catalog import load_catalog
-from .compute import find_total_eclipses
+from .compute import PathPoint, compute_eclipse_path, find_total_eclipses
 from .models import Location
 
 app = FastAPI(title="Eclipse Finder")
@@ -73,6 +73,28 @@ def get_eclipses(lat: float, lon: float, ref_utc: Optional[str] = None) -> Eclip
         previous=to_info(prev_r),
         next=to_info(next_r),
     )
+
+
+class EclipsePathResponse(BaseModel):
+    cat_no: int
+    date: str
+    eclipse_type: str
+    path: list[PathPoint]
+
+
+@app.get("/api/eclipse-path/{cat_no}")
+def get_eclipse_path(cat_no: int) -> EclipsePathResponse:
+    for e in CATALOG:
+        if e.cat_no == cat_no:
+            path = compute_eclipse_path(e)
+            return EclipsePathResponse(
+                cat_no=e.cat_no,
+                date=e.date_iso,
+                eclipse_type=e.eclipse_type_raw,
+                path=path,
+            )
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail=f"Eclipse {cat_no} not found")
 
 
 @app.get("/")

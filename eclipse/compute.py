@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 from typing import Literal, Optional, Tuple
 
+from pydantic import BaseModel
+
 from .models import (
     EclipseKind,
     EclipseRecord,
@@ -233,6 +235,68 @@ def compute_local_eclipse(e: EclipseRecord, loc: Location) -> LocalEclipseResult
         return make_result("none")
 
     return make_result("total", jd_ut_from_t(e, t_c2), jd_ut_from_t(e, t_c3))
+
+
+class PathPoint(BaseModel):
+    lat: float
+    lon: float
+    t: float
+
+
+def compute_eclipse_path(
+    e: EclipseRecord,
+    num_points: int = 100,
+) -> list[PathPoint]:
+    """Compute the centerline path of totality for an eclipse.
+
+    Uses the shadow axis intersection with Earth's surface.
+    """
+    b = e.bessel
+    path_points: list[PathPoint] = []
+
+    t_start = b.tmin
+    t_end = b.tmax
+    dt = (t_end - t_start) / (num_points - 1) if num_points > 1 else 0
+
+    for i in range(num_points):
+        t = t_start + i * dt
+
+        X = poly3(b.x0, b.x1, b.x2, b.x3, t)
+        Y = poly3(b.y0, b.y1, b.y2, b.y3, t)
+        d = poly2(b.d0, b.d1, b.d2, t)
+        mu = poly2(b.mu0, b.mu1, b.mu2, t)
+
+        d_rad = d * RAD
+        sin_d = math.sin(d_rad)
+        cos_d = math.cos(d_rad)
+
+        rho_sq = X * X + Y * Y
+        if rho_sq > 1.0:
+            continue
+
+        rho1 = math.sqrt(1.0 - rho_sq)
+
+        sin_phi1 = Y * cos_d + rho1 * sin_d
+        cos_phi1 = math.sqrt(1.0 - sin_phi1 * sin_phi1)
+        if cos_phi1 < 1e-10:
+            continue
+
+        phi1 = math.asin(sin_phi1) / RAD
+
+        tan_phi = sin_phi1 / (EARTH_1ME2_SQRT * cos_phi1)
+        lat = math.atan(tan_phi) / RAD
+
+        theta = math.atan2(X, rho1 * cos_d - Y * sin_d) / RAD
+        lon = theta - mu + DEG_PER_SEC * e.delta_t_seconds
+
+        while lon > 180:
+            lon -= 360
+        while lon < -180:
+            lon += 360
+
+        path_points.append(PathPoint(lat=lat, lon=lon, t=t))
+
+    return path_points
 
 
 def find_total_eclipses(

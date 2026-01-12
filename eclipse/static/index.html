@@ -125,6 +125,15 @@
             .pointRadius(0.5)
             .atmosphereColor('#3a7bd5')
             .atmosphereAltitude(0.15)
+            .pathsData([])
+            .pathPoints('coords')
+            .pathPointLat(p => p[0])
+            .pathPointLng(p => p[1])
+            .pathColor(path => path.color)
+            .pathStroke(3)
+            .pathDashLength(0.01)
+            .pathDashGap(0.004)
+            .pathDashAnimateTime(100000)
             (document.getElementById('globe'));
 
         globe.controls().autoRotate = true;
@@ -165,7 +174,21 @@
             return `https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=${ecl}`;
         }
 
-        function displayResults(data) {
+        async function fetchEclipsePath(catNo, color) {
+            try {
+                const resp = await fetch(`/api/eclipse-path/${catNo}`);
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                return {
+                    coords: data.path.map(p => [p.lat, p.lon]),
+                    color: color
+                };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function displayResults(data) {
             let html = `<div class="coords">📍 ${data.lat.toFixed(4)}°, ${data.lon.toFixed(4)}°</div>`;
             
             html += '<div class="eclipse-card previous">';
@@ -197,6 +220,17 @@
             html += '</div>';
             
             document.getElementById('content').innerHTML = html;
+
+            const paths = [];
+            if (data.previous) {
+                const path = await fetchEclipsePath(data.previous.cat_no, '#7eb8da');
+                if (path) paths.push(path);
+            }
+            if (data.next) {
+                const path = await fetchEclipsePath(data.next.cat_no, '#f5a623');
+                if (path) paths.push(path);
+            }
+            globe.pathsData(paths);
         }
     </script>
 </body>
