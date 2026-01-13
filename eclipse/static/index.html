@@ -336,10 +336,6 @@
 
         /* Mobile Responsive Styles */
         @media (max-width: 768px) {
-            .github-fork-ribbon {
-                display: none;
-            }
-            
             #search-container {
                 top: 12px;
                 left: 12px;
@@ -489,7 +485,7 @@
     </style>
 </head>
 <body>
-    <a class="github-fork-ribbon right-top fixed" href="https://github.com/spookyuser/eclipse" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
+    <a class="github-fork-ribbon right-bottom fixed" href="https://github.com/spookyuser/eclipse" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
 
     <div id="map"></div>
 
@@ -556,8 +552,6 @@
             zoom: 1.5,
             center: [0, 20]
         });
-
-        map.addControl(new mapboxgl.NavigationControl());
 
         map.on('style.load', () => {
             map.setFog({
@@ -748,6 +742,7 @@
             if (item) {
                 const index = parseInt(item.dataset.index, 10);
                 selectSuggestion(index);
+                hideSuggestions();
             }
         });
 
