@@ -95,6 +95,13 @@
             flex-direction: column;
             gap: 12px;
         }
+        #main-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #fff;
+            margin: 0 0 4px 0;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        }
         #search-box {
             display: flex;
             gap: 8px;
@@ -221,14 +228,41 @@
         .mapboxgl-ctrl-bottom-right {
             display: none;
         }
+        #loading-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 20px 32px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #f5a623;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <a class="github-fork-ribbon left-top fixed" href="https://github.com/spookyuser/eclipse" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
+    <a class="github-fork-ribbon right-top fixed" href="https://github.com/spookyuser/eclipse" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
 
     <div id="map"></div>
 
     <div id="search-container">
+        <h1 id="main-title">Find My Eclipse</h1>
         <div id="search-box">
             <input type="text" id="search-input" placeholder="Search for a place or address...">
             <button id="search-btn">Go</button>
@@ -258,13 +292,16 @@
     </div>
 
     <div id="info-panel">
-    <h1>Find My Eclipse</h1>    
-
         <div id="content">
         </div>
     </div>
     
     <div id="instructions">Click anywhere to see the <strong>next</strong> and <strong>previous</strong> total solar eclipses at that location*</div>   
+    
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <span>Loading eclipse paths...</span>
+    </div>
     
     <div id="attribution">
         Eclipse Predictions by <a href="https://eclipse.gsfc.nasa.gov/" target="_blank">Fred Espenak, NASA's GSFC</a>
@@ -374,63 +411,99 @@
             return `https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=${ecl}`;
         }
 
-        async function fetchEclipsePath(catNo, color, id) {
-            try {
-                const resp = await fetch(`/api/eclipse-path/${catNo}`);
-                if (!resp.ok) return null;
-                const data = await resp.json();
-                const coords = data.path.map(p => [p.lon, p.lat]);
-                return { coords, color, id };
-            } catch (e) {
-                return null;
-            }
+        // NASA layer IDs that get created by their script
+        const NASA_LAYER_IDS = [
+            'northern-limit-line',
+            'central-limit-line', 
+            'southern-limit-line',
+            'polyline-left-line',
+            'polyline-right-line'
+        ];
+        const NASA_SOURCE_IDS = [
+            'northern-limit',
+            'central-limit',
+            'southern-limit', 
+            'polyline-left',
+            'polyline-right'
+        ];
+
+        function clearNasaLayers(prefix) {
+            // Remove layers and sources with the given prefix
+            NASA_LAYER_IDS.forEach(id => {
+                const layerId = `${prefix}-${id}`;
+                if (map.getLayer(layerId)) {
+                    map.removeLayer(layerId);
+                }
+            });
+            NASA_SOURCE_IDS.forEach(id => {
+                const sourceId = `${prefix}-${id}`;
+                if (map.getSource(sourceId)) {
+                    map.removeSource(sourceId);
+                }
+            });
         }
 
-        function addPathToMap(pathData) {
-            const sourceId = `path-${pathData.id}`;
-            const layerId = `layer-${pathData.id}`;
+        function formatEclipseId(dateIso) {
+            // Convert ISO date (2024-04-08) to NASA format (+20240408)
+            // NASA expects + prefix for positive years, - for BCE
+            return '+' + dateIso.replace(/-/g, '');
+        }
+
+        async function loadNasaEclipsePath(dateIso, color, prefix) {
+            const eclId = formatEclipseId(dateIso);
+            const nasaUrl = `https://eclipse.gsfc.nasa.gov/SEsearch/eclipse-path-data.js.php?Ecl=${encodeURIComponent(eclId)}&Spc=0.5`;
+            const url = `https://dibalik.wenhop.workers.dev/?url=${encodeURIComponent(nasaUrl)}`;
             
-            if (map.getSource(sourceId)) {
-                map.removeLayer(layerId);
-                map.removeSource(sourceId);
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) return false;
+                const jsCode = await resp.text();
+                
+                // Check if NASA returned an actual error (not just error handling code)
+                // Valid responses start with "// Eclipse path data for eclipse"
+                // Error responses start with "// Error generating eclipse path data"
+                if (jsCode.startsWith('// Error') || !jsCode.includes('centralLimitCoords')) {
+                    console.warn(`NASA API error for eclipse ${eclId}`);
+                    return false;
+                }
+                
+                // Clear any existing layers for this prefix
+                clearNasaLayers(prefix);
+                
+                // Modify the NASA code to use prefixed layer/source IDs and custom colors
+                let modifiedCode = jsCode
+                    // Prefix source names
+                    .replace(/'northern-limit'/g, `'${prefix}-northern-limit'`)
+                    .replace(/'central-limit'/g, `'${prefix}-central-limit'`)
+                    .replace(/'southern-limit'/g, `'${prefix}-southern-limit'`)
+                    .replace(/'polyline-left'/g, `'${prefix}-polyline-left'`)
+                    .replace(/'polyline-right'/g, `'${prefix}-polyline-right'`)
+                    // Prefix layer names
+                    .replace(/'northern-limit-line'/g, `'${prefix}-northern-limit-line'`)
+                    .replace(/'central-limit-line'/g, `'${prefix}-central-limit-line'`)
+                    .replace(/'southern-limit-line'/g, `'${prefix}-southern-limit-line'`)
+                    .replace(/'polyline-left-line'/g, `'${prefix}-polyline-left-line'`)
+                    .replace(/'polyline-right-line'/g, `'${prefix}-polyline-right-line'`)
+                    // Override colors - central line gets the main color, limits get a lighter version
+                    .replace(/'line-color': '#FF0000'/g, `'line-color': '${color}'`)
+                    .replace(/'line-color': '#3300ff'/g, `'line-color': '${color}'`)
+                    // Make lines thicker
+                    .replace(/'line-width': 2/g, `'line-width': 3`);
+                
+                // Execute the modified NASA code
+                const fn = new Function('map', 'maplibregl', modifiedCode);
+                fn(map, mapboxgl); // mapboxgl works as maplibregl substitute
+                
+                return true;
+            } catch (e) {
+                console.error(`Failed to load NASA path for ${dateIso}:`, e);
+                return false;
             }
-            
-            map.addSource(sourceId, {
-                type: 'geojson',
-                data: {
-                    type: 'Feature',
-                    properties: {},
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: pathData.coords
-                    }
-                }
-            });
-            
-            map.addLayer({
-                id: layerId,
-                type: 'line',
-                source: sourceId,
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-color': pathData.color,
-                    'line-width': 4,
-                    'line-opacity': 0.8
-                }
-            });
         }
 
         function clearPaths() {
-            ['previous', 'next'].forEach(id => {
-                const sourceId = `path-${id}`;
-                const layerId = `layer-${id}`;
-                if (map.getSource(sourceId)) {
-                    map.removeLayer(layerId);
-                    map.removeSource(sourceId);
-                }
+            ['previous', 'next'].forEach(prefix => {
+                clearNasaLayers(prefix);
             });
         }
 
@@ -469,23 +542,31 @@
 
             clearPaths();
             const legend = document.getElementById('legend');
+            const loadingOverlay = document.getElementById('loading-overlay');
             let hasPath = false;
             
-            if (data.previous) {
-                const result = await fetchEclipsePath(data.previous.cat_no, '#7eb8da', 'previous');
-                if (result) {
-                    addPathToMap(result);
-                    hasPath = true;
+            // Show loading overlay
+            loadingOverlay.style.display = 'flex';
+            
+            try {
+                // Load paths in parallel
+                const [prevLoaded, nextLoaded] = await Promise.all([
+                    data.previous ? loadNasaEclipsePath(data.previous.date, '#7eb8da', 'previous') : Promise.resolve(false),
+                    data.next ? loadNasaEclipsePath(data.next.date, '#f5a623', 'next') : Promise.resolve(false)
+                ]);
+                
+                if (prevLoaded) hasPath = true;
+                if (nextLoaded) hasPath = true;
+                
+                if (data.previous) {
+                    document.getElementById('legend-previous').textContent = data.previous.date;
                 }
-                document.getElementById('legend-previous').textContent = data.previous.date;
-            }
-            if (data.next) {
-                const result = await fetchEclipsePath(data.next.cat_no, '#f5a623', 'next');
-                if (result) {
-                    addPathToMap(result);
-                    hasPath = true;
+                if (data.next) {
+                    document.getElementById('legend-next').textContent = data.next.date;
                 }
-                document.getElementById('legend-next').textContent = data.next.date;
+            } finally {
+                // Hide loading overlay
+                loadingOverlay.style.display = 'none';
             }
             
             legend.style.display = hasPath ? 'block' : 'none';

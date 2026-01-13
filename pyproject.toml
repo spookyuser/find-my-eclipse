@@ -5,10 +5,10 @@
 [project]
     dependencies=[
         "astropy>=7.2.0",
-        "fastapi>=0.115.0",
+        "fastapi[standard]>=0.115.0",
         "pydantic>=2.12.5",
         "uvicorn>=0.34.0",
-    ]
+]
     description="Solar eclipse calculations using NASA Besselian elements"
     name="eclipse"
     readme="README.md"
