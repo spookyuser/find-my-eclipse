@@ -189,6 +189,37 @@
         }
         .legend-line.previous { background: #7eb8da; }
         .legend-line.next { background: #f5a623; }
+        
+        .mapboxgl-popup-content {
+            background: rgba(20, 20, 30, 0.95);
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 13px;
+            backdrop-filter: blur(10px);
+        }
+        .mapboxgl-popup-tip {
+            border-top-color: rgba(20, 20, 30, 0.95) !important;
+        }
+        .mapboxgl-popup-close-button {
+            color: #888;
+            font-size: 18px;
+            padding: 4px 8px;
+        }
+        .mapboxgl-popup-close-button:hover {
+            color: #fff;
+            background: transparent;
+        }
+        .path-popup-time {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .path-popup-coords {
+            color: #888;
+            font-size: 12px;
+        }
         #instructions {
             position: fixed;
             bottom: 60px;
@@ -411,31 +442,25 @@
             return `https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=${ecl}`;
         }
 
-        // NASA layer IDs that get created by their script
-        const NASA_LAYER_IDS = [
-            'northern-limit-line',
-            'central-limit-line', 
-            'southern-limit-line',
-            'polyline-left-line',
-            'polyline-right-line'
-        ];
-        const NASA_SOURCE_IDS = [
+        // Layer IDs for our custom eclipse path rendering
+        const ECLIPSE_LAYER_IDS = [
+            'path-fill',
+            'path-fill-glow',
+            'centerline',
+            'centerline-glow',
             'northern-limit',
-            'central-limit',
-            'southern-limit', 
-            'polyline-left',
-            'polyline-right'
+            'southern-limit'
         ];
 
-        function clearNasaLayers(prefix) {
-            // Remove layers and sources with the given prefix
-            NASA_LAYER_IDS.forEach(id => {
+        function clearEclipseLayers(prefix) {
+            ECLIPSE_LAYER_IDS.forEach(id => {
                 const layerId = `${prefix}-${id}`;
                 if (map.getLayer(layerId)) {
                     map.removeLayer(layerId);
                 }
             });
-            NASA_SOURCE_IDS.forEach(id => {
+            // Also remove sources
+            ['path-polygon', 'centerline', 'northern-limit', 'southern-limit'].forEach(id => {
                 const sourceId = `${prefix}-${id}`;
                 if (map.getSource(sourceId)) {
                     map.removeSource(sourceId);
@@ -445,8 +470,187 @@
 
         function formatEclipseId(dateIso) {
             // Convert ISO date (2024-04-08) to NASA format (+20240408)
-            // NASA expects + prefix for positive years, - for BCE
             return '+' + dateIso.replace(/-/g, '');
+        }
+
+        function parseNasaCoords(jsCode, varName) {
+            // Extract coordinate arrays from NASA's JS code
+            // Format: const varName = [{lat: ..., lng: ...}, {lat: ..., lng: ...}, ...];
+            const regex = new RegExp(`(?:const|var)\\s+${varName}\\s*=\\s*\\[([\\s\\S]*?)\\];`);
+            const match = jsCode.match(regex);
+            if (!match) return null;
+            
+            try {
+                // Parse the object array format: {lat: 25.5, lng: -105.2}
+                const coordsText = match[1];
+                const coords = [];
+                const pointRegex = /\{lat:\s*([-\d.]+),\s*lng:\s*([-\d.]+)\}/g;
+                let pointMatch;
+                while ((pointMatch = pointRegex.exec(coordsText)) !== null) {
+                    const lat = parseFloat(pointMatch[1]);
+                    const lng = parseFloat(pointMatch[2]);
+                    coords.push([lng, lat]); // GeoJSON is [lng, lat]
+                }
+                return coords.length > 0 ? coords : null;
+            } catch (e) {
+                console.warn(`Failed to parse ${varName}:`, e);
+                return null;
+            }
+        }
+
+        function parseNasaTimeData(jsCode) {
+            // Extract time labels from NASA's code
+            // Format: const centralLimitLabels = [{coord: {lat: ..., lng: ...}, label: "time"}, ...];
+            const regex = /(?:const|var)\s+centralLimitLabels\s*=\s*\[([\s\S]*?)\];/;
+            const match = jsCode.match(regex);
+            if (!match) return null;
+            
+            try {
+                const labelsText = match[1];
+                const labels = [];
+                // Match: {coord: {lat: 25.5, lng: -105.2}, label: "18:42"}
+                const labelRegex = /\{coord:\s*\{lat:\s*([-\d.]+),\s*lng:\s*([-\d.]+)\},\s*label:\s*["']([^"']+)["']\}/g;
+                let labelMatch;
+                while ((labelMatch = labelRegex.exec(labelsText)) !== null) {
+                    labels.push({
+                        coord: [parseFloat(labelMatch[2]), parseFloat(labelMatch[1])], // [lng, lat]
+                        label: labelMatch[3]
+                    });
+                }
+                return labels.length > 0 ? labels : null;
+            } catch (e) {
+                console.warn('Failed to parse time labels:', e);
+                return null;
+            }
+        }
+
+        function hexToRgba(hex, alpha) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function splitLineAtAntimeridian(coords) {
+            // Split a line that crosses the antimeridian (±180°) into multiple segments
+            // This prevents lines from going the "wrong way" around the globe
+            if (!coords || coords.length < 2) return [coords];
+            
+            const segments = [];
+            let currentSegment = [coords[0]];
+            
+            for (let i = 1; i < coords.length; i++) {
+                const prevLng = coords[i - 1][0];
+                const currLng = coords[i][0];
+                
+                // Detect antimeridian crossing (large jump in longitude)
+                if (Math.abs(currLng - prevLng) > 180) {
+                    // Close current segment and start new one
+                    if (currentSegment.length > 1) {
+                        segments.push(currentSegment);
+                    }
+                    currentSegment = [coords[i]];
+                } else {
+                    currentSegment.push(coords[i]);
+                }
+            }
+            
+            if (currentSegment.length > 1) {
+                segments.push(currentSegment);
+            }
+            
+            return segments;
+        }
+
+        function createPathPolygons(northernCoords, southernCoords) {
+            // Create polygon(s) from northern and southern limits
+            // Handle antimeridian crossings by creating a MultiPolygon
+            if (!northernCoords || !southernCoords || northernCoords.length < 2 || southernCoords.length < 2) {
+                return null;
+            }
+            
+            // Split both lines at antimeridian
+            const northSegments = splitLineAtAntimeridian(northernCoords);
+            const southSegments = splitLineAtAntimeridian(southernCoords);
+            
+            // If no antimeridian crossing, create simple polygon
+            if (northSegments.length === 1 && southSegments.length === 1) {
+                const polygonCoords = [
+                    ...northernCoords,
+                    ...southernCoords.slice().reverse(),
+                    northernCoords[0]
+                ];
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [polygonCoords]
+                    }
+                };
+            }
+            
+            // For paths crossing antimeridian, create separate polygons for each segment pair
+            // Match segments by their longitude ranges
+            const polygons = [];
+            
+            for (let i = 0; i < Math.min(northSegments.length, southSegments.length); i++) {
+                const northSeg = northSegments[i];
+                const southSeg = southSegments[i];
+                
+                if (northSeg.length >= 2 && southSeg.length >= 2) {
+                    const polygonCoords = [
+                        ...northSeg,
+                        ...southSeg.slice().reverse(),
+                        northSeg[0]
+                    ];
+                    polygons.push([polygonCoords]);
+                }
+            }
+            
+            if (polygons.length === 0) return null;
+            
+            if (polygons.length === 1) {
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: polygons[0]
+                    }
+                };
+            }
+            
+            return {
+                type: 'Feature',
+                geometry: {
+                    type: 'MultiPolygon',
+                    coordinates: polygons
+                }
+            };
+        }
+
+        function createMultiLineString(coords) {
+            // Create a LineString or MultiLineString, handling antimeridian crossings
+            const segments = splitLineAtAntimeridian(coords);
+            
+            if (segments.length === 0) return null;
+            
+            if (segments.length === 1) {
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: segments[0]
+                    }
+                };
+            }
+            
+            return {
+                type: 'Feature',
+                geometry: {
+                    type: 'MultiLineString',
+                    coordinates: segments
+                }
+            };
         }
 
         async function loadNasaEclipsePath(dateIso, color, prefix) {
@@ -459,40 +663,177 @@
                 if (!resp.ok) return false;
                 const jsCode = await resp.text();
                 
-                // Check if NASA returned an actual error (not just error handling code)
-                // Valid responses start with "// Eclipse path data for eclipse"
-                // Error responses start with "// Error generating eclipse path data"
                 if (jsCode.startsWith('// Error') || !jsCode.includes('centralLimitCoords')) {
                     console.warn(`NASA API error for eclipse ${eclId}`);
                     return false;
                 }
                 
+                // Parse coordinate data from NASA's JS
+                const centralCoords = parseNasaCoords(jsCode, 'centralLimitCoords');
+                const northernCoords = parseNasaCoords(jsCode, 'northernLimitCoords');
+                const southernCoords = parseNasaCoords(jsCode, 'southernLimitCoords');
+                const timeLabels = parseNasaTimeData(jsCode);
+                
+                if (!centralCoords || centralCoords.length < 2) {
+                    console.warn(`No valid path data for ${eclId}`);
+                    return false;
+                }
+                
                 // Clear any existing layers for this prefix
-                clearNasaLayers(prefix);
+                clearEclipseLayers(prefix);
                 
-                // Modify the NASA code to use prefixed layer/source IDs and custom colors
-                let modifiedCode = jsCode
-                    // Prefix source names
-                    .replace(/'northern-limit'/g, `'${prefix}-northern-limit'`)
-                    .replace(/'central-limit'/g, `'${prefix}-central-limit'`)
-                    .replace(/'southern-limit'/g, `'${prefix}-southern-limit'`)
-                    .replace(/'polyline-left'/g, `'${prefix}-polyline-left'`)
-                    .replace(/'polyline-right'/g, `'${prefix}-polyline-right'`)
-                    // Prefix layer names
-                    .replace(/'northern-limit-line'/g, `'${prefix}-northern-limit-line'`)
-                    .replace(/'central-limit-line'/g, `'${prefix}-central-limit-line'`)
-                    .replace(/'southern-limit-line'/g, `'${prefix}-southern-limit-line'`)
-                    .replace(/'polyline-left-line'/g, `'${prefix}-polyline-left-line'`)
-                    .replace(/'polyline-right-line'/g, `'${prefix}-polyline-right-line'`)
-                    // Override colors - central line gets the main color, limits get a lighter version
-                    .replace(/'line-color': '#FF0000'/g, `'line-color': '${color}'`)
-                    .replace(/'line-color': '#3300ff'/g, `'line-color': '${color}'`)
-                    // Make lines thicker
-                    .replace(/'line-width': 2/g, `'line-width': 3`);
+                // Create the totality zone polygon if we have both limits
+                const pathPolygon = createPathPolygons(northernCoords, southernCoords);
                 
-                // Execute the modified NASA code
-                const fn = new Function('map', 'maplibregl', modifiedCode);
-                fn(map, mapboxgl); // mapboxgl works as maplibregl substitute
+                if (pathPolygon) {
+                    // Add polygon source
+                    map.addSource(`${prefix}-path-polygon`, {
+                        type: 'geojson',
+                        data: pathPolygon
+                    });
+                    
+                    // Add outer glow layer (larger, more transparent)
+                    map.addLayer({
+                        id: `${prefix}-path-fill-glow`,
+                        type: 'fill',
+                        source: `${prefix}-path-polygon`,
+                        paint: {
+                            'fill-color': color,
+                            'fill-opacity': 0.08
+                        }
+                    });
+                    
+                    // Add main fill layer
+                    map.addLayer({
+                        id: `${prefix}-path-fill`,
+                        type: 'fill',
+                        source: `${prefix}-path-polygon`,
+                        paint: {
+                            'fill-color': color,
+                            'fill-opacity': 0.25
+                        }
+                    });
+                }
+                
+                // Add centerline with glow effect (handles antimeridian crossings)
+                const centerlineGeoJson = createMultiLineString(centralCoords);
+                if (centerlineGeoJson) {
+                    centerlineGeoJson.properties = { date: dateIso, timeLabels: timeLabels };
+                
+                    map.addSource(`${prefix}-centerline`, {
+                        type: 'geojson',
+                        data: centerlineGeoJson
+                    });
+                    
+                    // Outer glow layer
+                    map.addLayer({
+                        id: `${prefix}-centerline-glow`,
+                        type: 'line',
+                        source: `${prefix}-centerline`,
+                        paint: {
+                            'line-color': color,
+                            'line-width': 12,
+                            'line-opacity': 0.3,
+                            'line-blur': 8
+                        }
+                    });
+                    
+                    // Main centerline
+                    map.addLayer({
+                        id: `${prefix}-centerline`,
+                        type: 'line',
+                        source: `${prefix}-centerline`,
+                        paint: {
+                            'line-color': color,
+                            'line-width': 3,
+                            'line-opacity': 1
+                        }
+                    });
+                }
+                
+                // Add limit lines as subtle dashed lines
+                const northernLine = createMultiLineString(northernCoords);
+                if (northernLine) {
+                    map.addSource(`${prefix}-northern-limit`, {
+                        type: 'geojson',
+                        data: northernLine
+                    });
+                    map.addLayer({
+                        id: `${prefix}-northern-limit`,
+                        type: 'line',
+                        source: `${prefix}-northern-limit`,
+                        paint: {
+                            'line-color': color,
+                            'line-width': 1.5,
+                            'line-opacity': 0.6,
+                            'line-dasharray': [4, 4]
+                        }
+                    });
+                }
+                
+                const southernLine = createMultiLineString(southernCoords);
+                if (southernLine) {
+                    map.addSource(`${prefix}-southern-limit`, {
+                        type: 'geojson',
+                        data: southernLine
+                    });
+                    map.addLayer({
+                        id: `${prefix}-southern-limit`,
+                        type: 'line',
+                        source: `${prefix}-southern-limit`,
+                        paint: {
+                            'line-color': color,
+                            'line-width': 1.5,
+                            'line-opacity': 0.6,
+                            'line-dasharray': [4, 4]
+                        }
+                    });
+                }
+                
+                // Add hover interaction for centerline (only if centerline was added)
+                if (centerlineGeoJson) {
+                    map.on('mouseenter', `${prefix}-centerline`, () => {
+                        map.getCanvas().style.cursor = 'pointer';
+                    });
+                    map.on('mouseleave', `${prefix}-centerline`, () => {
+                        map.getCanvas().style.cursor = '';
+                    });
+                    
+                    // Click to show time info popup
+                    map.on('click', `${prefix}-centerline`, (e) => {
+                        const coords = e.lngLat;
+                        
+                        // Find nearest time label
+                        let nearestLabel = null;
+                        let minDist = Infinity;
+                        
+                        if (timeLabels) {
+                            timeLabels.forEach(item => {
+                                const [lng, lat] = item.coord;
+                                const dist = Math.sqrt(Math.pow(lng - coords.lng, 2) + Math.pow(lat - coords.lat, 2));
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    nearestLabel = item.label;
+                                }
+                            });
+                        }
+                        
+                        const timeHtml = nearestLabel 
+                            ? `<div class="path-popup-time">${nearestLabel} UTC</div>`
+                            : '';
+                        
+                        new mapboxgl.Popup({ closeButton: true, closeOnClick: true })
+                            .setLngLat(coords)
+                            .setHTML(`
+                                ${timeHtml}
+                                <div class="path-popup-coords">${coords.lat.toFixed(4)}°, ${coords.lng.toFixed(4)}°</div>
+                                <div style="margin-top: 4px; color: ${color}; font-weight: 600;">${dateIso}</div>
+                            `)
+                            .addTo(map);
+                        
+                        e.stopPropagation();
+                    });
+                }
                 
                 return true;
             } catch (e) {
@@ -503,7 +844,7 @@
 
         function clearPaths() {
             ['previous', 'next'].forEach(prefix => {
-                clearNasaLayers(prefix);
+                clearEclipseLayers(prefix);
             });
         }
 
