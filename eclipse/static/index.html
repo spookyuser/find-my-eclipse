@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-fork-ribbon-css/0.2.3/gh-fork-ribbon.min.css" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Find My Eclipse</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌑</text></svg>">
 
-    <script src="https://unpkg.com/globe.gl"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.11.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.11.0/mapbox-gl.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -16,7 +17,7 @@
             color: #fff;
             overflow: hidden;
         }
-        #globe { width: 100vw; height: 100vh; }
+        #map { width: 100vw; height: 100vh; }
         #info-panel {
             position: fixed;
             top: 20px;
@@ -28,6 +29,7 @@
             max-width: 360px;
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 1;
         }
         #info-panel h2 {
             font-size: 14px;
@@ -94,6 +96,7 @@
             padding: 12px 16px;
             backdrop-filter: blur(10px);
             font-size: 13px;
+            z-index: 1;
         }
         #legend h4 {
             font-size: 11px;
@@ -130,6 +133,7 @@
             color: #ccc;
             border: 1px solid rgba(255, 255, 255, 0.15);
             text-align: center;
+            z-index: 1;
         }
         #attribution {
             position: fixed;
@@ -139,6 +143,7 @@
             font-size: 12px;
             color: #666;
             text-align: center;
+            z-index: 1;
         }
         #attribution a {
             color: #7eb8da;
@@ -151,16 +156,16 @@
             color: #666;
             font-style: italic;
         }
-        .marker {
-            position: absolute;
-            pointer-events: none;
+        .mapboxgl-ctrl-bottom-left,
+        .mapboxgl-ctrl-bottom-right {
+            display: none;
         }
     </style>
 </head>
 <body>
     <a class="github-fork-ribbon left-top fixed" href="https://github.com/spookyuser/eclipse" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
 
-    <div id="globe"></div>
+    <div id="map"></div>
 
     
     <div id="legend" style="display: none;">
@@ -192,48 +197,40 @@
 
     
     <script>
-        const globe = Globe()
-            .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
-            .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
-            .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
-            .pointsData([])
-            .pointColor(() => '#f5a623')
-            .pointAltitude(0.01)
-            .pointRadius(0.5)
-            .atmosphereColor('#3a7bd5')
-            .atmosphereAltitude(0.15)
-            .pathsData([])
-            .pathPoints('coords')
-            .pathPointLat(p => p[0])
-            .pathPointLng(p => p[1])
-            .pathColor(path => path.color)
-            .pathStroke(3)
-            .pathDashLength(0.01)
-            .pathDashGap(0.004)
-            .pathDashAnimateTime(100000)
-            .labelsData([])
-            .labelLat(d => d.lat)
-            .labelLng(d => d.lng)
-            .labelText(d => d.text)
-            .labelSize(1.5)
-            .labelDotRadius(0.4)
-            .labelColor(d => d.color)
-            .labelResolution(2)
-            .labelAltitude(0.01)
-            (document.getElementById('globe'));
+        mapboxgl.accessToken = 'pk.eyJ1IjoiY2FsZWJkYXNkZmEiLCJhIjoiY21rY3BhbWsxMDNxNjNnczNtc3BuOHE5cCJ9.bX4Try-h9qXR7p2QpYueqA'
+        
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/satellite-v9',
+            projection: 'globe',
+            zoom: 1.5,
+            center: [0, 20]
+        });
 
-        globe.controls().autoRotate = true;
-        globe.controls().autoRotateSpeed = 0.5;
-        globe.controls().minDistance = 101;
-        globe.controls().maxDistance = 500;
+        map.addControl(new mapboxgl.NavigationControl());
 
-        let selectedPoint = null;
+        map.on('style.load', () => {
+            map.setFog({
+                color: 'rgb(186, 210, 235)',
+                'high-color': 'rgb(36, 92, 223)',
+                'horizon-blend': 0.02,
+                'space-color': 'rgb(11, 11, 25)',
+                'star-intensity': 0.6
+            });
+        });
 
-        globe.onGlobeClick(({ lat, lng }) => {
-            globe.controls().autoRotate = false;
+        let selectedMarker = null;
+
+        map.on('click', (e) => {
+            const { lng, lat } = e.lngLat;
             
-            selectedPoint = { lat, lng };
-            globe.pointsData([{ lat, lng }]);
+            if (selectedMarker) {
+                selectedMarker.remove();
+            }
+            
+            selectedMarker = new mapboxgl.Marker({ color: '#f5a623' })
+                .setLngLat([lng, lat])
+                .addTo(map);
             
             document.getElementById('content').innerHTML = '<p class="loading">Loading...</p>';
             
@@ -262,29 +259,64 @@
             return `https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=${ecl}`;
         }
 
-        async function fetchEclipsePath(catNo, color, label) {
+        async function fetchEclipsePath(catNo, color, id) {
             try {
                 const resp = await fetch(`/api/eclipse-path/${catNo}`);
                 if (!resp.ok) return null;
                 const data = await resp.json();
-                const coords = data.path.map(p => [p.lat, p.lon]);
-                const midIdx = Math.floor(coords.length / 2);
-                const midPoint = coords[midIdx];
-                return {
-                    path: {
-                        coords: coords,
-                        color: color
-                    },
-                    label: {
-                        lat: midPoint[0],
-                        lng: midPoint[1],
-                        text: label,
-                        color: color
-                    }
-                };
+                const coords = data.path.map(p => [p.lon, p.lat]);
+                return { coords, color, id };
             } catch (e) {
                 return null;
             }
+        }
+
+        function addPathToMap(pathData) {
+            const sourceId = `path-${pathData.id}`;
+            const layerId = `layer-${pathData.id}`;
+            
+            if (map.getSource(sourceId)) {
+                map.removeLayer(layerId);
+                map.removeSource(sourceId);
+            }
+            
+            map.addSource(sourceId, {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: pathData.coords
+                    }
+                }
+            });
+            
+            map.addLayer({
+                id: layerId,
+                type: 'line',
+                source: sourceId,
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-color': pathData.color,
+                    'line-width': 4,
+                    'line-opacity': 0.8
+                }
+            });
+        }
+
+        function clearPaths() {
+            ['previous', 'next'].forEach(id => {
+                const sourceId = `path-${id}`;
+                const layerId = `layer-${id}`;
+                if (map.getSource(sourceId)) {
+                    map.removeLayer(layerId);
+                    map.removeSource(sourceId);
+                }
+            });
         }
 
         async function displayResults(data) {
@@ -320,33 +352,28 @@
             
             document.getElementById('content').innerHTML = html;
 
-            const paths = [];
-            const labels = [];
+            clearPaths();
             const legend = document.getElementById('legend');
+            let hasPath = false;
             
             if (data.previous) {
-                const result = await fetchEclipsePath(data.previous.cat_no, '#7eb8da', data.previous.date);
+                const result = await fetchEclipsePath(data.previous.cat_no, '#7eb8da', 'previous');
                 if (result) {
-                    paths.push(result.path);
-                    labels.push(result.label);
+                    addPathToMap(result);
+                    hasPath = true;
                 }
                 document.getElementById('legend-previous').textContent = data.previous.date;
             }
             if (data.next) {
-                const result = await fetchEclipsePath(data.next.cat_no, '#f5a623', data.next.date);
+                const result = await fetchEclipsePath(data.next.cat_no, '#f5a623', 'next');
                 if (result) {
-                    paths.push(result.path);
-                    labels.push(result.label);
+                    addPathToMap(result);
+                    hasPath = true;
                 }
                 document.getElementById('legend-next').textContent = data.next.date;
             }
             
-            if (paths.length > 0) {
-                legend.style.display = 'block';
-            }
-            
-            globe.pathsData(paths);
-            globe.labelsData(labels);
+            legend.style.display = hasPath ? 'block' : 'none';
         }
     </script>
 </body>
