@@ -30,6 +30,10 @@
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
             z-index: 1;
+            display: none;
+        }
+        #info-panel.visible {
+            display: block;
         }
         #info-panel h2 {
             font-size: 14px;
@@ -329,6 +333,159 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* Mobile Responsive Styles */
+        @media (max-width: 768px) {
+            .github-fork-ribbon {
+                display: none;
+            }
+            
+            #search-container {
+                top: 12px;
+                left: 12px;
+                right: 12px;
+                width: auto;
+            }
+            
+            #main-title {
+                font-size: 22px;
+            }
+            
+            #search-box {
+                width: 100%;
+            }
+            
+            #search-input {
+                width: 100%;
+                flex: 1;
+                padding: 10px 14px;
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+            
+            #search-btn {
+                padding: 10px 14px;
+                flex-shrink: 0;
+            }
+            
+            #landmarks {
+                max-width: 100%;
+                gap: 6px;
+            }
+            
+            .landmark-btn {
+                padding: 6px 10px;
+                font-size: 11px;
+            }
+            
+            #info-panel {
+                position: fixed;
+                top: auto;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                max-width: 100%;
+                border-radius: 16px 16px 0 0;
+                padding: 16px;
+                max-height: 45vh;
+                overflow-y: auto;
+                transform: translateY(0);
+                transition: transform 0.3s ease;
+            }
+            
+            #info-panel h2 {
+                font-size: 12px;
+                margin-bottom: 12px;
+            }
+            
+            .eclipse-card .date {
+                font-size: 20px;
+            }
+            
+            .eclipse-card .time {
+                font-size: 13px;
+            }
+            
+            .eclipse-card {
+                margin-bottom: 12px;
+            }
+            
+            #legend {
+                bottom: auto;
+                top: 12px;
+                right: 12px;
+                left: auto;
+                padding: 10px 12px;
+                font-size: 11px;
+            }
+            
+            #legend h4 {
+                font-size: 10px;
+                margin-bottom: 6px;
+            }
+            
+            .legend-line {
+                width: 18px;
+                height: 2px;
+            }
+            
+            #instructions {
+                bottom: auto;
+                top: 50%;
+                left: 12px;
+                right: 12px;
+                transform: translateY(-50%);
+                padding: 14px 20px;
+                font-size: 14px;
+                border-radius: 10px;
+            }
+            
+            #attribution {
+                bottom: 8px;
+                left: 12px;
+                right: 12px;
+                width: auto;
+                transform: none;
+                font-size: 10px;
+                line-height: 1.4;
+            }
+            
+            .mapboxgl-popup-content {
+                padding: 10px 14px;
+                font-size: 12px;
+            }
+            
+            .path-popup-time {
+                font-size: 14px;
+            }
+            
+            #loading-overlay {
+                left: 12px;
+                right: 12px;
+                width: auto;
+                transform: translate(0, -50%);
+                padding: 16px 24px;
+            }
+        }
+        
+        /* Extra small screens */
+        @media (max-width: 380px) {
+            #main-title {
+                font-size: 18px;
+            }
+            
+            .landmark-btn {
+                padding: 5px 8px;
+                font-size: 10px;
+            }
+            
+            #info-panel {
+                padding: 14px;
+            }
+            
+            .eclipse-card .date {
+                font-size: 18px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -425,6 +582,13 @@
             
             if (flyTo) {
                 map.flyTo({ center: [lng, lat], zoom: 8 });
+            }
+            
+            // Show info panel and hide instructions
+            document.getElementById('info-panel').classList.add('visible');
+            const instructions = document.getElementById('instructions');
+            if (instructions) {
+                instructions.style.display = 'none';
             }
             
             document.getElementById('content').innerHTML = '<p class="loading">Loading...</p>';
@@ -1031,6 +1195,9 @@
 
         async function displayResults(data) {
             let html = `<div class="coords">📍 ${data.lat.toFixed(4)}°, ${data.lon.toFixed(4)}°</div>`;
+            
+            // Show the info panel
+            document.getElementById('info-panel').classList.add('visible');
             
             html += '<div class="eclipse-card previous">';
             html += '<h3>← Previous Total Eclipse</h3>';
