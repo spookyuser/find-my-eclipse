@@ -121,6 +121,50 @@
             outline: none;
             border-color: rgba(255, 255, 255, 0.3);
         }
+        #search-wrapper {
+            position: relative;
+        }
+        #autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: rgba(20, 20, 30, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            max-height: 240px;
+            overflow-y: auto;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            display: none;
+            z-index: 10;
+        }
+        #autocomplete-list.visible {
+            display: block;
+        }
+        .autocomplete-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.15s;
+        }
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        .autocomplete-item:hover,
+        .autocomplete-item.active {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .autocomplete-item-name {
+            font-size: 14px;
+            color: #fff;
+            margin-bottom: 2px;
+        }
+        .autocomplete-item-context {
+            font-size: 12px;
+            color: #888;
+        }
         #search-btn {
             padding: 12px 16px;
             background: rgba(245, 166, 35, 0.9);
@@ -295,7 +339,10 @@
     <div id="search-container">
         <h1 id="main-title">Find My Eclipse</h1>
         <div id="search-box">
-            <input type="text" id="search-input" placeholder="Search for a place or address...">
+            <div id="search-wrapper">
+                <input type="text" id="search-input" placeholder="Search for a place or address..." autocomplete="off">
+                <div id="autocomplete-list"></div>
+            </div>
             <button id="search-btn">Go</button>
         </div>
         <div id="landmarks">
@@ -402,15 +449,148 @@
             }
         }
 
-        document.getElementById('search-btn').addEventListener('click', () => {
-            const query = document.getElementById('search-input').value.trim();
-            if (query) searchPlace(query);
+        // Autocomplete functionality
+        const searchInput = document.getElementById('search-input');
+        const autocompleteList = document.getElementById('autocomplete-list');
+        let autocompleteDebounce = null;
+        let activeIndex = -1;
+        let currentSuggestions = [];
+
+        async function fetchSuggestions(query) {
+            if (!query || query.length < 2) {
+                hideSuggestions();
+                return;
+            }
+            
+            try {
+                const response = await fetch(
+                    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}&limit=5&autocomplete=true`
+                );
+                const data = await response.json();
+                
+                if (data.features && data.features.length > 0) {
+                    currentSuggestions = data.features;
+                    showSuggestions(data.features);
+                } else {
+                    hideSuggestions();
+                }
+            } catch (err) {
+                console.error('Autocomplete error:', err);
+                hideSuggestions();
+            }
+        }
+
+        function showSuggestions(features) {
+            autocompleteList.innerHTML = features.map((feature, index) => {
+                const name = feature.text || feature.place_name;
+                const context = feature.place_name.replace(name + ', ', '').replace(name, '');
+                return `
+                    <div class="autocomplete-item" data-index="${index}">
+                        <div class="autocomplete-item-name">${escapeHtml(name)}</div>
+                        ${context ? `<div class="autocomplete-item-context">${escapeHtml(context)}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+            
+            autocompleteList.classList.add('visible');
+            activeIndex = -1;
+        }
+
+        function hideSuggestions() {
+            autocompleteList.classList.remove('visible');
+            currentSuggestions = [];
+            activeIndex = -1;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function selectSuggestion(index) {
+            if (currentSuggestions[index]) {
+                const feature = currentSuggestions[index];
+                const [lng, lat] = feature.center;
+                searchInput.value = feature.place_name;
+                hideSuggestions();
+                selectLocation(lng, lat, true);
+            }
+        }
+
+        function updateActiveItem() {
+            const items = autocompleteList.querySelectorAll('.autocomplete-item');
+            items.forEach((item, i) => {
+                item.classList.toggle('active', i === activeIndex);
+            });
+            if (activeIndex >= 0 && items[activeIndex]) {
+                items[activeIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(autocompleteDebounce);
+            autocompleteDebounce = setTimeout(() => {
+                fetchSuggestions(e.target.value.trim());
+            }, 200);
         });
 
-        document.getElementById('search-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                const query = e.target.value.trim();
-                if (query) searchPlace(query);
+        searchInput.addEventListener('keydown', (e) => {
+            const items = autocompleteList.querySelectorAll('.autocomplete-item');
+            
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (autocompleteList.classList.contains('visible')) {
+                    activeIndex = Math.min(activeIndex + 1, items.length - 1);
+                    updateActiveItem();
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (autocompleteList.classList.contains('visible')) {
+                    activeIndex = Math.max(activeIndex - 1, 0);
+                    updateActiveItem();
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (activeIndex >= 0 && autocompleteList.classList.contains('visible')) {
+                    selectSuggestion(activeIndex);
+                } else {
+                    const query = searchInput.value.trim();
+                    if (query) {
+                        hideSuggestions();
+                        searchPlace(query);
+                    }
+                }
+            } else if (e.key === 'Escape') {
+                hideSuggestions();
+            }
+        });
+
+        searchInput.addEventListener('blur', () => {
+            // Delay to allow click on suggestion
+            setTimeout(hideSuggestions, 150);
+        });
+
+        searchInput.addEventListener('focus', () => {
+            const query = searchInput.value.trim();
+            if (query.length >= 2 && currentSuggestions.length > 0) {
+                autocompleteList.classList.add('visible');
+            }
+        });
+
+        autocompleteList.addEventListener('click', (e) => {
+            const item = e.target.closest('.autocomplete-item');
+            if (item) {
+                const index = parseInt(item.dataset.index, 10);
+                selectSuggestion(index);
+            }
+        });
+
+        document.getElementById('search-btn').addEventListener('click', () => {
+            const query = searchInput.value.trim();
+            if (query) {
+                hideSuggestions();
+                searchPlace(query);
             }
         });
 
