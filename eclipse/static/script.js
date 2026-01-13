@@ -646,7 +646,6 @@ function clearPaths() {
 async function displayResults(data) {
     let html = `<div class="coords">📍 ${data.lat.toFixed(4)}°, ${data.lon.toFixed(4)}°</div>`;
 
-    // Show the info panel
     document.getElementById('info-panel').classList.add('visible');
 
     html += '<div class="eclipse-card previous">';
