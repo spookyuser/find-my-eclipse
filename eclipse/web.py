@@ -44,7 +44,9 @@ class EclipseResponse(BaseModel):
 
 
 @app.get("/api/eclipses")
-def get_eclipses(lat: float, lon: float, ref_utc: Optional[str] = None) -> EclipseResponse:
+def get_eclipses(
+    lat: float, lon: float, ref_utc: Optional[str] = None
+) -> EclipseResponse:
     if ref_utc:
         ref_time = Time(ref_utc, scale="utc")
     else:
@@ -61,8 +63,12 @@ def get_eclipses(lat: float, lon: float, ref_utc: Optional[str] = None) -> Eclip
             date=r.eclipse.date_iso,
             eclipse_type=r.eclipse.eclipse_type_raw,
             max_time_utc=Time(r.jd_ut_max, format="jd", scale="utc").iso,
-            c2_time_utc=Time(r.jd_ut_c2, format="jd", scale="utc").iso if r.jd_ut_c2 else None,
-            c3_time_utc=Time(r.jd_ut_c3, format="jd", scale="utc").iso if r.jd_ut_c3 else None,
+            c2_time_utc=Time(r.jd_ut_c2, format="jd", scale="utc").iso
+            if r.jd_ut_c2
+            else None,
+            c3_time_utc=Time(r.jd_ut_c3, format="jd", scale="utc").iso
+            if r.jd_ut_c3
+            else None,
             duration_seconds=r.duration_seconds,
         )
 
@@ -94,6 +100,7 @@ def get_eclipse_path(cat_no: int) -> EclipsePathResponse:
                 path=path,
             )
     from fastapi import HTTPException
+
     raise HTTPException(status_code=404, detail=f"Eclipse {cat_no} not found")
 
 
@@ -108,4 +115,5 @@ if STATIC_DIR.exists():
 
 def run():
     import uvicorn
+
     uvicorn.run("eclipse.web:app", host="127.0.0.1", port=8000, reload=True)
