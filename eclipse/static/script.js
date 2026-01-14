@@ -652,10 +652,8 @@ async function displayResults(data) {
     html += '<h3>← Previous Total Eclipse</h3>';
     if (data.previous) {
         html += `<div class="date">${data.previous.date}</div>`;
-        html += `<div class="time">${data.previous.max_time_utc}</div>`;
-        if (data.previous.duration_seconds) {
-            html += `<div class="duration">${formatDuration(data.previous.duration_seconds)}</div>`;
-        }
+
+
         html += `<a class="nasa-link" href="${getNasaUrl(data.previous.date)}" target="_blank">View on NASA</a>`;
     } else {
         html += '<p class="no-eclipse">None found in catalog</p>';
@@ -666,10 +664,7 @@ async function displayResults(data) {
     html += '<h3>Next Total Eclipse →</h3>';
     if (data.next) {
         html += `<div class="date">${data.next.date}</div>`;
-        html += `<div class="time">${data.next.max_time_utc}</div>`;
-        if (data.next.duration_seconds) {
-            html += `<div class="duration">${formatDuration(data.next.duration_seconds)}</div>`;
-        }
+
         html += `<a class="nasa-link" href="${getNasaUrl(data.next.date)}" target="_blank">View on NASA</a>`;
     } else {
         html += '<p class="no-eclipse">None found in catalog</p>';
