@@ -451,7 +451,7 @@ function createMultiLineString(coords) {
 async function loadNasaEclipsePath(dateIso, color, prefix) {
     const eclId = formatEclipseId(dateIso);
     const nasaUrl = `https://eclipse.gsfc.nasa.gov/SEsearch/eclipse-path-data.js.php?Ecl=${encodeURIComponent(eclId)}&Spc=0.5`;
-    const url = `https://dibalik.wenhop.workers.dev/?url=${encodeURIComponent(nasaUrl)}`;
+    const url = `https://eclipse.wenhop.workers.dev/?url=${encodeURIComponent(nasaUrl)}`;
 
     try {
         const resp = await fetch(url);
