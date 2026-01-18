@@ -40,7 +40,11 @@ function selectLocation(lng, lat, flyTo = true) {
         instructions.style.display = 'none';
     }
 
-    document.getElementById('content').innerHTML = '<p class="loading">Loading...</p>';
+    document.getElementById('summary-tab').innerHTML = '<p class="loading">Loading...</p>';
+
+    // Reset to Summary tab and fetch all eclipses in parallel
+    switchToTab('summary');
+    fetchAllEclipses(lat, lng);
 
     fetch(`/api/eclipses?lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}`)
         .then(r => r.json())
@@ -48,7 +52,7 @@ function selectLocation(lng, lat, flyTo = true) {
             displayResults(data);
         })
         .catch(err => {
-            document.getElementById('content').innerHTML = `<p class="no-eclipse">Error: ${err.message}</p>`;
+            document.getElementById('summary-tab').innerHTML = `<p class="no-eclipse">Error: ${err.message}</p>`;
         });
 }
 
@@ -264,7 +268,13 @@ function clearEclipseLayers(prefix) {
 }
 
 function formatEclipseId(dateIso) {
-    // Convert ISO date (2024-04-08) to NASA format (+20240408)
+    // Convert ISO date to NASA format
+    // CE dates: 2024-04-08 -> +20240408
+    // BCE dates: -0549-06-30 -> -05490630
+    if (dateIso.startsWith('-')) {
+        // BCE date - preserve the minus sign, remove only the date separators
+        return '-' + dateIso.slice(1).replace(/-/g, '');
+    }
     return '+' + dateIso.replace(/-/g, '');
 }
 
@@ -622,7 +632,7 @@ async function loadNasaEclipsePath(dateIso, color, prefix) {
                     .setHTML(`
                         ${timeHtml}
                         <div class="path-popup-coords">${coords.lat.toFixed(4)}°, ${coords.lng.toFixed(4)}°</div>
-                        <div style="margin-top: 4px; color: ${color}; font-weight: 600;">${dateIso}</div>
+                        <div style="margin-top: 4px; color: ${color}; font-weight: 600;">${formatDisplayDate(dateIso)}</div>
                     `)
                     .addTo(map);
 
@@ -650,10 +660,9 @@ async function displayResults(data) {
 
     html += '<div class="eclipse-card previous">';
     html += '<h3>← Previous Total Eclipse</h3>';
+
     if (data.previous) {
-        html += `<div class="date">${data.previous.date}</div>`;
-
-
+        html += `<div class="date">${formatDisplayDate(data.previous.date)}</div>`;
         html += `<a class="nasa-link" href="${getNasaUrl(data.previous.date)}" target="_blank">View on NASA</a>`;
     } else {
         html += '<p class="no-eclipse">None found in catalog</p>';
@@ -663,15 +672,14 @@ async function displayResults(data) {
     html += '<div class="eclipse-card next">';
     html += '<h3>Next Total Eclipse →</h3>';
     if (data.next) {
-        html += `<div class="date">${data.next.date}</div>`;
-
+        html += `<div class="date">${formatDisplayDate(data.next.date)}</div>`;
         html += `<a class="nasa-link" href="${getNasaUrl(data.next.date)}" target="_blank">View on NASA</a>`;
     } else {
         html += '<p class="no-eclipse">None found in catalog</p>';
     }
     html += '</div>';
 
-    document.getElementById('content').innerHTML = html;
+    document.getElementById('summary-tab').innerHTML = html;
 
     clearPaths();
     const legend = document.getElementById('legend');
@@ -692,10 +700,10 @@ async function displayResults(data) {
         if (nextLoaded) hasPath = true;
 
         if (data.previous) {
-            document.getElementById('legend-previous').textContent = data.previous.date;
+            document.getElementById('legend-previous').textContent = formatDisplayDate(data.previous.date);
         }
         if (data.next) {
-            document.getElementById('legend-next').textContent = data.next.date;
+            document.getElementById('legend-next').textContent = formatDisplayDate(data.next.date);
         }
     } finally {
         // Hide loading overlay
@@ -703,4 +711,381 @@ async function displayResults(data) {
     }
 
     legend.style.display = hasPath ? 'block' : 'none';
+}
+
+// Tab switching
+function switchToTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `${tabName}-tab`);
+    });
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        switchToTab(btn.dataset.tab);
+    });
+});
+
+// All eclipses functionality
+let allEclipsesData = null;
+let currentSelectedEclipse = null;
+
+async function fetchAllEclipses(lat, lng) {
+    const listEl = document.getElementById('eclipse-list');
+    const loadingEl = document.getElementById('eclipse-list-loading');
+    const chartLoadingEl = document.getElementById('chart-loading');
+    const chartEl = document.getElementById('gap-chart');
+
+    listEl.innerHTML = '';
+    chartEl.innerHTML = '';
+    loadingEl.style.display = 'block';
+    chartLoadingEl.style.display = 'block';
+    allEclipsesData = null;
+
+    try {
+        const resp = await fetch(`/api/all-eclipses?lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}`);
+        const data = await resp.json();
+        allEclipsesData = data;
+        renderEclipseList(data);
+        renderGapChart(data);
+    } catch (err) {
+        listEl.innerHTML = `<p class="no-eclipse">Error: ${err.message}</p>`;
+        chartEl.innerHTML = `<p class="no-eclipse">Error: ${err.message}</p>`;
+        chartLoadingEl.style.display = 'none';
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function formatDisplayDate(dateIso) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    if (dateIso.startsWith('-')) {
+        // BCE date: -0549-06-30 -> Jun 30, 549 BCE
+        const parts = dateIso.slice(1).split('-');
+        const year = parseInt(parts[0], 10);
+        const month = months[parseInt(parts[1], 10) - 1];
+        const day = parseInt(parts[2], 10);
+        return `${month} ${day}, ${year} BCE`;
+    }
+
+    // CE date: 2024-04-08 -> Apr 8, 2024
+    const parts = dateIso.split('-');
+    const year = parseInt(parts[0], 10);
+    const month = months[parseInt(parts[1], 10) - 1];
+    const day = parseInt(parts[2], 10);
+    return `${month} ${day}, ${year}`;
+}
+
+function getYearsAgo(dateIso) {
+    const currentYear = new Date().getFullYear();
+    let eclipseYear;
+
+    if (dateIso.startsWith('-')) {
+        // BCE year (negative)
+        eclipseYear = -parseInt(dateIso.slice(1).split('-')[0], 10);
+    } else {
+        eclipseYear = parseInt(dateIso.split('-')[0], 10);
+    }
+
+    const diff = currentYear - eclipseYear;
+    if (diff > 0) {
+        return `${diff.toLocaleString()} years ago`;
+    } else if (diff < 0) {
+        return `in ${Math.abs(diff).toLocaleString()} years`;
+    }
+    return 'this year';
+}
+
+function getYearFromDate(dateIso) {
+    if (dateIso.startsWith('-')) {
+        return -parseInt(dateIso.slice(1).split('-')[0], 10);
+    }
+    return parseInt(dateIso.split('-')[0], 10);
+}
+
+function renderGapChart(data) {
+    const chartEl = document.getElementById('gap-chart');
+    const loadingEl = document.getElementById('chart-loading');
+
+    loadingEl.style.display = 'none';
+
+    if (!data || !data.eclipses || data.eclipses.length < 2) {
+        chartEl.innerHTML = '<p class="no-eclipse">Not enough eclipses to show gaps</p>';
+        return;
+    }
+
+    const eclipses = data.eclipses;
+    const currentYear = new Date().getFullYear();
+
+    // Calculate gaps between consecutive eclipses
+    const gaps = [];
+    for (let i = 0; i < eclipses.length - 1; i++) {
+        const year1 = getYearFromDate(eclipses[i].date);
+        const year2 = getYearFromDate(eclipses[i + 1].date);
+        gaps.push({
+            startYear: year1,
+            endYear: year2,
+            startDate: eclipses[i].date,
+            endDate: eclipses[i + 1].date,
+            gapYears: year2 - year1
+        });
+    }
+
+    // Get min and max years for the timeline
+    const minYear = getYearFromDate(eclipses[0].date);
+    const maxYear = getYearFromDate(eclipses[eclipses.length - 1].date);
+    const yearRange = maxYear - minYear;
+
+    // SVG dimensions
+    const width = chartEl.clientWidth || 320;
+    const height = 200;
+    const padding = { top: 40, right: 20, bottom: 30, left: 20 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Scale function to convert year to x position
+    const yearToX = (year) => {
+        return padding.left + ((year - minYear) / yearRange) * chartWidth;
+    };
+
+    // Build SVG
+    let svg = `<svg class="gap-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">`;
+
+    // Draw axis line
+    svg += `<line class="chart-axis" x1="${padding.left}" y1="${padding.top + chartHeight/2}" x2="${width - padding.right}" y2="${padding.top + chartHeight/2}" />`;
+
+    // Draw gaps as colored bars
+    const barHeight = 24;
+    const barY = padding.top + chartHeight/2 - barHeight/2;
+
+    // Collect gradient definitions for gaps spanning the current year
+    const gradientDefs = [];
+
+    gaps.forEach((gap, i) => {
+        const x1 = yearToX(gap.startYear);
+        const x2 = yearToX(gap.endYear);
+        const isPast = gap.endYear <= currentYear;
+        const isFuture = gap.startYear >= currentYear;
+        const isCurrent = gap.startYear < currentYear && gap.endYear > currentYear;
+
+        let color;
+        if (isPast) {
+            color = '#7eb8da';
+        } else if (isFuture) {
+            color = '#f5a623';
+        } else {
+            // Gap spans current year - calculate where "Now" falls within the gap
+            const nowPercent = ((currentYear - gap.startYear) / (gap.endYear - gap.startYear)) * 100;
+            const gradientId = `gradientMixed${i}`;
+            gradientDefs.push(`
+                <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#7eb8da"/>
+                    <stop offset="${nowPercent}%" style="stop-color:#7eb8da"/>
+                    <stop offset="${nowPercent}%" style="stop-color:#f5a623"/>
+                    <stop offset="100%" style="stop-color:#f5a623"/>
+                </linearGradient>
+            `);
+            color = `url(#${gradientId})`;
+        }
+
+        const gapWidth = Math.max(x2 - x1, 2);
+
+        svg += `<rect class="gap-bar"
+            x="${x1}" y="${barY}"
+            width="${gapWidth}" height="${barHeight}"
+            fill="${color}"
+            rx="3"
+            data-gap-index="${i}"
+            data-years="${gap.gapYears}"
+            data-start="${gap.startDate}"
+            data-end="${gap.endDate}" />`;
+
+        // Add year label inside the bar if wide enough
+        const labelText = `${gap.gapYears}y`;
+        const minWidthForLabel = labelText.length * 7 + 10; // Approximate text width
+        if (gapWidth >= minWidthForLabel) {
+            const labelX = x1 + gapWidth / 2;
+            const labelY = barY + barHeight / 2 + 4;
+            svg += `<text class="gap-bar-label" x="${labelX}" y="${labelY}" text-anchor="middle" fill="#fff" font-size="10" font-weight="500" pointer-events="none">${gap.gapYears}y</text>`;
+        }
+    });
+
+    // Add gradient definitions for mixed past/future gaps
+    if (gradientDefs.length > 0) {
+        svg += `<defs>${gradientDefs.join('')}</defs>`;
+    }
+
+    // Draw eclipse markers on top
+    eclipses.forEach((ecl, i) => {
+        const year = getYearFromDate(ecl.date);
+        const x = yearToX(year);
+        const isPast = year < currentYear;
+        const color = isPast ? '#7eb8da' : '#f5a623';
+
+        svg += `<circle class="eclipse-marker"
+            cx="${x}" cy="${padding.top + chartHeight/2}" r="4"
+            fill="${color}" stroke="#fff" stroke-width="1" />`;
+    });
+
+    // Draw "now" line if within range
+    if (currentYear >= minYear && currentYear <= maxYear) {
+        const nowX = yearToX(currentYear);
+        svg += `<line class="now-line" x1="${nowX}" y1="${padding.top}" x2="${nowX}" y2="${padding.top + chartHeight}" />`;
+        svg += `<text x="${nowX}" y="${padding.top - 8}" fill="#fff" font-size="10" text-anchor="middle">Now</text>`;
+    }
+
+    // Add year labels at start and end
+    const formatYearLabel = (year) => {
+        if (year < 0) {
+            return `${Math.abs(year)} BCE`;
+        }
+        return year.toString();
+    };
+
+    svg += `<text class="gap-label" x="${padding.left}" y="${height - 8}" text-anchor="start">${formatYearLabel(minYear)}</text>`;
+    svg += `<text class="gap-label" x="${width - padding.right}" y="${height - 8}" text-anchor="end">${formatYearLabel(maxYear)}</text>`;
+
+    // Add some intermediate labels if space allows
+    if (chartWidth > 200) {
+        const midYear = Math.round((minYear + maxYear) / 2);
+        svg += `<text class="gap-label" x="${yearToX(midYear)}" y="${height - 8}" text-anchor="middle">${formatYearLabel(midYear)}</text>`;
+    }
+
+    svg += '</svg>';
+
+    // Add header with data range note
+    chartEl.innerHTML = `<div class="chart-header">Total Solar Eclipses<span class="chart-subheader">${eclipses.length} eclipses • 2000 BCE – 3000 CE</span></div>${svg}`;
+
+    // Add tooltip container
+    const tooltip = document.createElement('div');
+    tooltip.className = 'gap-tooltip';
+    tooltip.style.display = 'none';
+    chartEl.style.position = 'relative';
+    chartEl.appendChild(tooltip);
+
+    // Add hover interactions for gaps
+    chartEl.querySelectorAll('.gap-bar').forEach(bar => {
+        bar.addEventListener('mouseenter', (e) => {
+            const years = bar.dataset.years;
+            const startDate = bar.dataset.start;
+            const endDate = bar.dataset.end;
+
+            tooltip.innerHTML = `
+                <div class="gap-tooltip-years">${years} year${years !== '1' ? 's' : ''} between eclipses</div>
+                <div class="gap-tooltip-dates">${formatDisplayDate(startDate)} → ${formatDisplayDate(endDate)}</div>
+            `;
+            tooltip.style.display = 'block';
+        });
+
+        bar.addEventListener('mousemove', (e) => {
+            const rect = chartEl.getBoundingClientRect();
+            let left = e.clientX - rect.left + 10;
+            let top = e.clientY - rect.top - 40;
+
+            // Keep tooltip in bounds
+            const tooltipRect = tooltip.getBoundingClientRect();
+            if (left + tooltipRect.width > rect.width) {
+                left = e.clientX - rect.left - tooltipRect.width - 10;
+            }
+            if (top < 0) {
+                top = e.clientY - rect.top + 20;
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        });
+
+        bar.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+        });
+    });
+}
+
+function renderEclipseList(data) {
+    const listEl = document.getElementById('eclipse-list');
+
+    if (!data.eclipses || data.eclipses.length === 0) {
+        listEl.innerHTML = '<p class="no-eclipse">No total eclipses found at this location</p>';
+        return;
+    }
+
+    const now = new Date();
+    let html = `<div class="eclipse-list-header">Total Solar Eclipses<span class="chart-subheader">${data.total_count} eclipses • 2000 BCE – 3000 CE</span></div>`;
+    html += '<div class="eclipse-list-items">';
+
+    data.eclipses.forEach(ecl => {
+        const isPast = ecl.date.startsWith('-') || new Date(ecl.date) < now;
+        const durationText = ecl.duration_seconds
+            ? `${Math.floor(ecl.duration_seconds / 60)}m ${Math.round(ecl.duration_seconds % 60)}s`
+            : '';
+
+        html += `
+            <div class="eclipse-list-item ${isPast ? 'past' : 'future'}"
+                 data-cat-no="${ecl.cat_no}"
+                 data-date="${ecl.date}"
+                 title="${getYearsAgo(ecl.date)}">
+                <div class="eclipse-list-item-date">${formatDisplayDate(ecl.date)}</div>
+                ${durationText ? `<div class="eclipse-list-item-duration">${durationText}</div>` : ''}
+                <div class="eclipse-list-item-badge">${isPast ? 'Past' : 'Future'}</div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    listEl.innerHTML = html;
+
+    // Add click handlers
+    listEl.querySelectorAll('.eclipse-list-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const catNo = parseInt(item.dataset.catNo, 10);
+            const date = item.dataset.date;
+            showEclipseFromList(catNo, date, item);
+        });
+    });
+}
+
+async function showEclipseFromList(catNo, date, itemEl) {
+    // Update selection visual
+    document.querySelectorAll('.eclipse-list-item').forEach(el => {
+        el.classList.remove('selected');
+    });
+    itemEl.classList.add('selected');
+
+    // Determine if eclipse is past or future
+    const isPast = date.startsWith('-') || new Date(date) < new Date();
+    const color = isPast ? '#7eb8da' : '#f5a623';
+    const prefix = isPast ? 'previous' : 'next';
+
+    // Clear existing paths and show loading
+    clearPaths();
+    const loadingOverlay = document.getElementById('loading-overlay');
+    loadingOverlay.style.display = 'flex';
+
+    try {
+        // Load the selected eclipse path
+        await loadNasaEclipsePath(date, color, prefix);
+
+        // Update legend
+        const legend = document.getElementById('legend');
+        const previousLegend = document.getElementById('legend-previous').parentElement;
+        const nextLegend = document.getElementById('legend-next').parentElement;
+
+        if (isPast) {
+            document.getElementById('legend-previous').textContent = formatDisplayDate(date);
+            previousLegend.style.display = '';
+            nextLegend.style.display = 'none';
+        } else {
+            document.getElementById('legend-next').textContent = formatDisplayDate(date);
+            nextLegend.style.display = '';
+            previousLegend.style.display = 'none';
+        }
+        legend.style.display = 'block';
+    } finally {
+        loadingOverlay.style.display = 'none';
+    }
 }

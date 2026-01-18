@@ -334,3 +334,30 @@ def find_total_eclipses(
                 next_res = res
 
     return prev_res, next_res
+
+
+def find_all_total_eclipses(
+    catalog: list[EclipseRecord],
+    loc: Location,
+) -> list[LocalEclipseResult]:
+    """Find all total solar eclipses visible from a location.
+
+    Args:
+        catalog: List of eclipse records to search.
+        loc: Geographic location.
+
+    Returns:
+        List of total eclipses sorted chronologically by date.
+    """
+    results: list[LocalEclipseResult] = []
+
+    for e in catalog:
+        if e.main_type not in ("T", "H"):
+            continue
+
+        res = compute_local_eclipse(e, loc)
+        if res.kind == "total":
+            results.append(res)
+
+    results.sort(key=lambda r: r.jd_ut_max)
+    return results
