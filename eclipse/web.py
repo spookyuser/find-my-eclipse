@@ -17,11 +17,33 @@ from pydantic import BaseModel
 
 from .catalog import load_catalog
 from .compute import PathPoint, compute_eclipse_path, find_all_total_eclipses, find_total_eclipses
-from .models import Location
+from .models import EclipseRecord, Location
 
 app = FastAPI(title="Eclipse Finder")
 
-CATALOG = load_catalog()
+_catalog: list[EclipseRecord] | None = None
+
+
+def get_catalog() -> list[EclipseRecord]:
+    """Lazy-load the catalog on first request so the server can start accepting
+    connections immediately and avoid Cloudflare host-error timeouts during
+    Railway cold starts."""
+    global _catalog
+    if _catalog is None:
+        _catalog = load_catalog()
+    return _catalog
+
+
+@app.on_event("startup")
+async def _preload_catalog() -> None:
+    """Start loading the catalog in a background thread so it's ready by the
+    time the first real request arrives, without blocking server startup."""
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, get_catalog)  # fire-and-forget
+
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -53,7 +75,7 @@ def get_eclipses(
         ref_time = Time.now()
 
     loc = Location(latitude_deg=lat, longitude_deg_east=lon, altitude_m=0)
-    prev_r, next_r = find_total_eclipses(CATALOG, loc, ref_time.jd)
+    prev_r, next_r = find_total_eclipses(get_catalog(), loc, ref_time.jd)
 
     def to_info(r) -> Optional[EclipseInfo]:
         if r is None:
@@ -90,7 +112,7 @@ class EclipsePathResponse(BaseModel):
 
 @app.get("/api/eclipse-path/{cat_no}")
 def get_eclipse_path(cat_no: int) -> EclipsePathResponse:
-    for e in CATALOG:
+    for e in get_catalog():
         if e.cat_no == cat_no:
             path = compute_eclipse_path(e)
             return EclipsePathResponse(
@@ -121,7 +143,7 @@ class AllEclipsesResponse(BaseModel):
 @app.get("/api/all-eclipses")
 def get_all_eclipses(lat: float, lon: float) -> AllEclipsesResponse:
     loc = Location(latitude_deg=lat, longitude_deg_east=lon, altitude_m=0)
-    results = find_all_total_eclipses(CATALOG, loc)
+    results = find_all_total_eclipses(get_catalog(), loc)
 
     eclipses = []
     for r in results:
