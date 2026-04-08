@@ -42,7 +42,7 @@ body {
 }
 .eclipse-card h3 {
     font-size: 12px;
-    color: #666;
+    color: #999;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 8px;
@@ -65,7 +65,7 @@ body {
 .eclipse-card.previous .date { color: #7eb8da; }
 .eclipse-card.next .date { color: #f5a623; }
 .no-eclipse {
-    color: #666;
+    color: #999;
     font-style: italic;
 }
 .nasa-link {
@@ -108,7 +108,7 @@ body {
     font-size: 14px;
     backdrop-filter: blur(10px);
 }
-#search-input::placeholder { color: #666; }
+#search-input::placeholder { color: #999; }
 #search-input:focus {
     outline: none;
     border-color: rgba(255, 255, 255, 0.3);
@@ -276,7 +276,7 @@ body {
     left: 50%;
     transform: translateX(-50%);
     font-size: 12px;
-    color: #666;
+    color: #999;
     text-align: center;
     z-index: 1;
 }
@@ -288,7 +288,7 @@ body {
     text-decoration: underline;
 }
 .loading {
-    color: #666;
+    color: #999;
     font-style: italic;
 }
 .mapboxgl-ctrl-bottom-left,
@@ -473,7 +473,7 @@ body {
     display: block;
     font-size: 10px;
     text-transform: none;
-    color: #666;
+    color: #999;
     margin-top: 4px;
     letter-spacing: 0;
 }
@@ -536,13 +536,23 @@ body {
     
     #landmarks {
         max-width: 100%;
-        gap: 4px;
+        gap: 6px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 4px;
     }
-    
+    #landmarks::-webkit-scrollbar {
+        display: none;
+    }
+
     .landmark-btn {
-        padding: 4px 8px;
+        padding: 5px 10px;
         font-size: 10px;
         border-radius: 4px;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
     
     #info-panel {
@@ -710,12 +720,14 @@ body {
     }
     
     #landmarks {
-        gap: 3px;
+        gap: 4px;
     }
-    
+
     .landmark-btn {
-        padding: 3px 6px;
+        padding: 4px 8px;
         font-size: 9px;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
     
     #info-panel {

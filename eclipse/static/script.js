@@ -907,7 +907,7 @@ function renderGapChart(data) {
 
         // Add year label inside the bar if wide enough
         const labelText = `${gap.gapYears}y`;
-        const minWidthForLabel = labelText.length * 7 + 10; // Approximate text width
+        const minWidthForLabel = labelText.length * 8 + 12; // Approximate text width
         if (gapWidth >= minWidthForLabel) {
             const labelX = x1 + gapWidth / 2;
             const labelY = barY + barHeight / 2 + 4;
@@ -920,15 +920,22 @@ function renderGapChart(data) {
         svg += `<defs>${gradientDefs.join('')}</defs>`;
     }
 
-    // Draw eclipse markers on top
+    // Draw eclipse markers on top (reduce size when markers are close together)
+    const markerPositions = eclipses.map(ecl => yearToX(getYearFromDate(ecl.date)));
     eclipses.forEach((ecl, i) => {
         const year = getYearFromDate(ecl.date);
-        const x = yearToX(year);
+        const x = markerPositions[i];
         const isPast = year < currentYear;
         const color = isPast ? '#7eb8da' : '#f5a623';
 
+        // Check distance to neighbors — use smaller markers when clustered
+        const prevDist = i > 0 ? Math.abs(x - markerPositions[i - 1]) : Infinity;
+        const nextDist = i < markerPositions.length - 1 ? Math.abs(markerPositions[i + 1] - x) : Infinity;
+        const minDist = Math.min(prevDist, nextDist);
+        const r = minDist < 10 ? 3 : 4;
+
         svg += `<circle class="eclipse-marker"
-            cx="${x}" cy="${padding.top + chartHeight/2}" r="4"
+            cx="${x}" cy="${padding.top + chartHeight/2}" r="${r}"
             fill="${color}" stroke="#fff" stroke-width="1" />`;
     });
 
@@ -951,7 +958,7 @@ function renderGapChart(data) {
     svg += `<text class="gap-label" x="${width - padding.right}" y="${height - 8}" text-anchor="end">${formatYearLabel(maxYear)}</text>`;
 
     // Add some intermediate labels if space allows
-    if (chartWidth > 200) {
+    if (chartWidth > 300) {
         const midYear = Math.round((minYear + maxYear) / 2);
         svg += `<text class="gap-label" x="${yearToX(midYear)}" y="${height - 8}" text-anchor="middle">${formatYearLabel(midYear)}</text>`;
     }
