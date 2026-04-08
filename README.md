@@ -4,6 +4,8 @@ To be honest i have no idea how this works and i especially don't understand how
 
 If you have any ideas on how to improve it, please let me know!
 
+I wrote about how I built this [here](https://substack.com/home/post/p-184982931).
+
 # Run
 
 ```bash
